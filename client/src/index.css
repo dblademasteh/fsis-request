@@ -3,46 +3,101 @@
 @plugin "daisyui/theme" {
   name: "bfp";
   default: true;
-  prefersdark: false;
+  prefersdark: true;
   color-scheme: light;
 
-  /* Backgrounds — warm off-white, no blue tint */
-  --color-base-100: oklch(99.5% 0.004 80);
-  --color-base-200: oklch(97% 0.006 80);
-  --color-base-300: oklch(93.5% 0.008 80);
-  --color-base-content: oklch(16% 0.01 60);
+  /* Backgrounds — clean blue-white */
+  --color-base-100: oklch(99% 0.006 250);
+  --color-base-200: oklch(96% 0.008 250);
+  --color-base-300: oklch(92% 0.01 250);
+  --color-base-content: oklch(15% 0.02 260);
 
-  /* Primary — Dark warm charcoal (header, nav active, main CTA) */
-  --color-primary: oklch(20% 0.015 60);
-  --color-primary-content: oklch(99.5% 0.004 80);
+  /* Primary — Deep Navy Blue */
+  --color-primary: oklch(25% 0.08 260);
+  --color-primary-content: oklch(99% 0.006 250);
 
-  /* Secondary — Amber Gold (links, secondary buttons, highlights) */
-  --color-secondary: oklch(68% 0.14 75);
-  --color-secondary-content: oklch(18% 0.03 75);
+  /* Secondary — Vibrant Orange */
+  --color-secondary: oklch(70% 0.17 50);
+  --color-secondary-content: oklch(18% 0.04 50);
 
-  /* Accent — Warm Green (success, approve, badges) */
-  --color-accent: oklch(50% 0.14 155);
-  --color-accent-content: oklch(99.5% 0.004 80);
+  /* Accent — Warm Green */
+  --color-accent: oklch(52% 0.14 155);
+  --color-accent-content: oklch(99% 0.006 250);
 
-  /* Neutral — Dark stone for text on light bg */
-  --color-neutral: oklch(18% 0.01 60);
-  --color-neutral-content: oklch(97% 0.006 80);
+  /* Neutral */
+  --color-neutral: oklch(20% 0.03 260);
+  --color-neutral-content: oklch(96% 0.008 250);
 
   /* Info */
   --color-info: oklch(55% 0.12 230);
-  --color-info-content: oklch(99.5% 0.004 80);
+  --color-info-content: oklch(99% 0.006 250);
 
   /* Success */
-  --color-success: oklch(50% 0.14 155);
-  --color-success-content: oklch(99.5% 0.004 80);
+  --color-success: oklch(52% 0.14 155);
+  --color-success-content: oklch(99% 0.006 250);
 
-  /* Warning — Deep Amber (high contrast on white) */
-  --color-warning: oklch(62% 0.15 75);
-  --color-warning-content: oklch(20% 0.04 75);
+  /* Warning — Orange tone */
+  --color-warning: oklch(68% 0.16 55);
+  --color-warning-content: oklch(20% 0.04 50);
 
-  /* Error — Warm Red */
-  --color-error: oklch(52% 0.22 25);
-  --color-error-content: oklch(99.5% 0.004 80);
+  /* Error */
+  --color-error: oklch(55% 0.22 25);
+  --color-error-content: oklch(99% 0.006 250);
+
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.75rem;
+
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@plugin "daisyui/theme" {
+  name: "bfp-dark";
+  default: false;
+  color-scheme: dark;
+
+  /* Backgrounds — deep navy dark */
+  --color-base-100: oklch(16% 0.03 260);
+  --color-base-200: oklch(19% 0.035 260);
+  --color-base-300: oklch(23% 0.04 260);
+  --color-base-content: oklch(93% 0.01 250);
+
+  /* Primary — Brighter navy */
+  --color-primary: oklch(60% 0.10 260);
+  --color-primary-content: oklch(15% 0.02 260);
+
+  /* Secondary — Bright orange */
+  --color-secondary: oklch(75% 0.17 50);
+  --color-secondary-content: oklch(16% 0.04 50);
+
+  /* Accent — Bright green */
+  --color-accent: oklch(60% 0.14 155);
+  --color-accent-content: oklch(16% 0.02 260);
+
+  /* Neutral */
+  --color-neutral: oklch(85% 0.01 250);
+  --color-neutral-content: oklch(20% 0.03 260);
+
+  /* Info */
+  --color-info: oklch(65% 0.12 230);
+  --color-info-content: oklch(16% 0.02 260);
+
+  /* Success */
+  --color-success: oklch(60% 0.14 155);
+  --color-success-content: oklch(16% 0.02 260);
+
+  /* Warning */
+  --color-warning: oklch(75% 0.16 55);
+  --color-warning-content: oklch(16% 0.04 50);
+
+  /* Error */
+  --color-error: oklch(62% 0.22 25);
+  --color-error-content: oklch(99% 0.006 250);
 
   --radius-selector: 0.5rem;
   --radius-field: 0.5rem;
@@ -57,14 +112,81 @@
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: "Fira Sans";
   font-style: normal;
-  font-weight: 300 400 500 600 700;
-  src: url("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZhrib2Bg-4.woff2") format("woff2");
+  font-weight: 300;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/firasans/v18/va9B4kDNxMZdWfMOD5VnPKreRhf6.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fira Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/firasans/v18/va9E4kDNxMZdWfMOD5Vvl4jL.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fira Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/firasans/v18/va9B4kDNxMZdWfMOD5VnZKveRhf6.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fira Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/firasans/v18/va9B4kDNxMZdWfMOD5VnSKzeRhf6.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fira Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/firasans/v18/va9B4kDNxMZdWfMOD5VnLK3eRhf6.woff2") format("woff2");
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: "Fira Sans", system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Visible focus rings for keyboard navigation (ui-ux-pro-max: accessibility priority 1) */
+:focus-visible {
+  outline: 2px solid oklch(60% 0.10 260);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Cursor pointer on all clickable elements (ui-ux-pro-max: pre-delivery checklist) */
+button, a, [role="button"], select, [onclick] {
+  cursor: pointer;
+}
+
+/* Hover transitions 150-300ms (ui-ux-pro-max: pre-delivery checklist) */
+button, a {
+  transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+@media (display-mode: standalone) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

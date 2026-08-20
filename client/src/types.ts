@@ -8,10 +8,10 @@ export interface FireStation {
 
 export interface TransferRequest {
   id: number;
-  station_from_id: number;
-  station_to_id: number;
-  station_from_name: string;
-  station_to_name: string;
+  station_from_id: number | null;
+  station_to_id: number | null;
+  station_from_name: string | null;
+  station_to_name: string | null;
   purpose_of_request: string;
   account_number: string | null;
   rank: string | null;
@@ -22,6 +22,12 @@ export interface TransferRequest {
   email: string;
   designation: string | null;
   status: "pending" | "approved" | "denied";
+  new_rank: string | null;
+  new_first_name: string | null;
+  new_middle_name: string | null;
+  new_last_name: string | null;
+  new_suffix: string | null;
+  new_email: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -62,3 +68,17 @@ export const DESIGNATION_OPTIONS = [
   "Inspector",
   "Evaluator",
 ];
+
+export interface Personnel {
+  id: number;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  suffix: string | null;
+  rank: string | null;
+  designation: string | null;
+  account_number: string | null;
+  email: string | null;
+  station: string | null;
+  created_at: string;
+}

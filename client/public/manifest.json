@@ -1,0 +1,25 @@
+{
+  "name": "FSIS - Fire Station Transfer Request",
+  "short_name": "FSIS",
+  "description": "BFP Region II Fire Station Information System - Personnel Transfer Request Management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f2a5e",
+  "orientation": "any",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

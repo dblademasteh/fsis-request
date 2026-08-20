@@ -12,12 +12,10 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
-      DROP TABLE IF EXISTS transfer_requests;
-
-      CREATE TABLE transfer_requests (
+      CREATE TABLE IF NOT EXISTS transfer_requests (
         id SERIAL PRIMARY KEY,
-        station_from_id INTEGER NOT NULL REFERENCES fire_stations(id),
-        station_to_id INTEGER NOT NULL REFERENCES fire_stations(id),
+        station_from_id INTEGER REFERENCES fire_stations(id),
+        station_to_id INTEGER REFERENCES fire_stations(id),
         purpose_of_request VARCHAR(255) NOT NULL,
         account_number VARCHAR(100),
         rank VARCHAR(100),
@@ -28,9 +26,41 @@ async function migrate() {
         email VARCHAR(255) NOT NULL,
         designation VARCHAR(255),
         status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        new_rank VARCHAR(100),
+        new_first_name VARCHAR(255),
+        new_middle_name VARCHAR(255),
+        new_last_name VARCHAR(255),
+        new_suffix VARCHAR(50),
+        new_email VARCHAR(255),
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS personnel (
+        id SERIAL PRIMARY KEY,
+        first_name VARCHAR(255) NOT NULL,
+        middle_name VARCHAR(255),
+        last_name VARCHAR(255) NOT NULL,
+        suffix VARCHAR(50),
+        rank VARCHAR(100),
+        designation VARCHAR(255),
+        account_number VARCHAR(100),
+        email VARCHAR(255),
+        station VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'admin',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      INSERT INTO users (username, password, role)
+      VALUES ('admin', '$2b$10$placeholder', 'admin')
+      ON CONFLICT (username) DO NOTHING;
 
       INSERT INTO fire_stations (station_name, municipality, province) VALUES
         ('Tuguegarao City Fire Station', 'Tuguegarao City', 'Cagayan'),
@@ -115,6 +145,29 @@ async function migrate() {
         ('Aglipay Fire Station', 'Aglipay', 'Quirino')
       ON CONFLICT DO NOTHING;
     `);
+
+    // Add new columns to existing transfer_requests (safe to run multiple times)
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_rank VARCHAR(100);
+        ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_first_name VARCHAR(255);
+        ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_middle_name VARCHAR(255);
+        ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_last_name VARCHAR(255);
+        ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_suffix VARCHAR(50);
+        ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_email VARCHAR(255);
+      EXCEPTION WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // Add indexes for performance
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_requests_account ON transfer_requests(account_number);
+      CREATE INDEX IF NOT EXISTS idx_requests_status ON transfer_requests(status);
+      CREATE INDEX IF NOT EXISTS idx_requests_from ON transfer_requests(station_from_id);
+      CREATE INDEX IF NOT EXISTS idx_requests_to ON transfer_requests(station_to_id);
+      CREATE INDEX IF NOT EXISTS idx_personnel_account ON personnel(account_number);
+    `);
+
     console.log("Migration completed successfully.");
   } catch (err) {
     console.error("Migration failed:", err);
