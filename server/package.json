@@ -5,7 +5,10 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "migrate": "ts-node src/db/migrate.ts"
+    "migrate": "ts-node src/db/migrate.ts",
+    "deploy-stations": "ts-node src/db/deploy-stations.ts",
+    "seed-personnel": "ts-node src/db/seed-personnel.ts",
+    "reseed": "ts-node src/db/reseed.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
