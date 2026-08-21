@@ -1,99 +1,150 @@
-# FSIS Request - Deployment Guide
+# FSIS Request — Deployment Guide
 
-## Cloudflare Tunnel Setup
+Production target: **BFP-R2-NAS1** at `/volume1/docker/fsis-request`, deployed from GitHub.
 
-### 1. Create .env file
+## Workflow
+
+Code is edited on the dev PC and pushed to GitHub. The NAS **pulls** — never edit tracked files directly on the NAS (diverged files caused every deploy issue to date). Only `.env` lives only on the NAS.
+
 ```bash
-cp .env.example .env
-nano .env
+# Dev PC
+git add . && git commit -m "..." && git push
+
+# NAS
+cd /volume1/docker/fsis-request
+git pull origin main
+docker compose up -d --build        # rebuilds only what changed
 ```
 
-### 2. Set environment variables
+## 1. `.env` (on the NAS)
+
+Create once at the project root:
+
 ```env
-DB_USER=fsis
-DB_PASSWORD=your_secure_password_here
+DB_USER=fsis_admin
+DB_PASSWORD=strong_db_password
 DB_NAME=fsis
-JWT_SECRET=your_very_long_secret_key_at_least_32_characters
+JWT_SECRET=long_random_secret_at_least_32_characters
 BASE_URL=http://localhost:3001
 CLIENT_PORT=38080
 SERVER_PORT=3001
+ADMIN_PASSWORD=secure_admin_password
+CF_TUNNEL_TOKEN=eyJ...cloudflare_tunnel_token
 ```
 
-### 3. Deploy to NAS via SSH
+Rules:
+
+* One entry per variable — duplicates silently override each other.
+* `ADMIN_PASSWORD` is injected into the server container by compose; it is applied on every server start.
+* `CF_TUNNEL_TOKEN` is optional until you want public access via Cloudflare.
+
+> ⚠️ `POSTGRES_USER`/`POSTGRES_PASSWORD` only take effect on **first** initialization of the `postgres_data` volume. To change DB credentials later you must either create the new role manually in psql or wipe the volume (`docker compose down -v`) — which deletes all data.
+
+## 2. Deploy / update
+
 ```bash
-# From your computer
-scp Dockerfile.client Dockerfile.server docker-compose.yml .env.example nginx.conf deploy.sh user@bfp-r2-nas1:/path/to/fsis-request
-
-# SSH to NAS
-ssh bfpr2@bfp-r2-nas1
-
-# Navigate to project
-cd /path/to/fsis-request
-
-# Create .env
-cp .env.example .env
-nano .env  # Edit with your values
-
-# Make deploy script executable
-chmod +x deploy.sh
-
-# Run deployment
-./deploy.sh
+cd /volume1/docker/fsis-request
+git pull origin main
+docker compose up -d --build
 ```
 
-### 4. Configure Cloudflare Tunnel
+On first boot (or after `down -v`):
+
+1. Postgres initializes with `DB_USER`/`DB_PASSWORD` from `.env`
+2. The server container waits 10s → runs migrations (`node dist/db/migrate.js`) → creates tables, seeds default stations, sets the admin password
+3. API listens on port 3001, nginx serves the client on `CLIENT_PORT` (38080)
+
+Verify:
+
 ```bash
-# On NAS - in your project directory
-cloudflared tunnel --hostname devbry.online --url http://localhost:8080
+docker compose ps                                   # all containers Up, stable uptimes
+docker compose logs server --tail 10                # expect: Migration completed successfully. / Server running on port 3001
+docker compose exec postgres env | grep POSTGRES_USER   # matches DB_USER
 ```
 
-Or add to your existing tunnel config:
-```yaml
-# ~/.cloudflared/config.yml
-tunnels:
-  fsis-request:
-    ingress:
-      - hostname: devbry.online
-        service: http://localhost:80
-      - service: http_status:404
-```
+## 3. Database seeding
 
-## Manual Start (without deploy script)
+Migrations auto-run at container start. Manual seed commands use **compiled JS inside the server image** (`ts-node`/`src/` are not in production images):
+
 ```bash
-# Build
-docker-compose build
+# Fire stations (idempotent — skips existing)
+docker compose exec server node dist/db/deploy-stations.js
 
-# Start
-docker-compose up -d
-
-# Run initial setup
-docker-compose exec server npm run migrate
-docker-compose exec server ts-node src/db/deploy-stations.ts
-docker-compose exec server ts-node src/db/seed-personnel.ts   # ensure personnel_template.csv is placed in server/src/db/
+# Personnel (DELETES all personnel rows, then imports the bundled CSV)
+docker compose exec server node dist/db/seed-personnel.js
 ```
 
-## Admin Login
-- **Username:** admin
-- **Password:** from `.env` `ADMIN_PASSWORD` (falls back to `changeme` if not set — change it in production!)
+The personnel seed reads `server/src/db/personnel_template.csv`, which is baked into the image at build time. To change the data: update the CSV → commit/push → `git pull && docker compose up -d --build server` → rerun the seed command.
 
-Add this to your `.env` on the server:
-```env
-ADMIN_PASSWORD=your_secure_admin_password
-```
-The password is applied every time the server starts (migration step), so changing `ADMIN_PASSWORD` + restarting the stack updates the login.
+For day-to-day personnel management prefer the admin UI (**Personnel → Import CSV / Add / Edit / Delete**) — it goes through the API and needs no rebuild.
 
-## Services
-- **Client (Web):** http://localhost:8080 (via Cloudflare: https://devbry.online)
-- **Server (API):** http://localhost:3001
+## 4. Admin login
 
-## Stopping Services
+* **Username:** `admin`
+* **Password:** value of `ADMIN_PASSWORD` in `.env` (fallback `changeme` — never in production)
+
+Changing the password: edit `.env` → `docker compose up -d --force-recreate server`.
+
+User accounts are not separate logins — landing-page users identify themselves by their FSIS account number, which must exist in the `personnel` table.
+
+## 5. Cloudflare tunnel (public access, optional)
+
+Uses a token-based remote-managed tunnel. One-time setup in the Cloudflare dashboard:
+
+1. https://one.dash.cloudflare.com → **Networks → Tunnels → Create a tunnel** (type *Cloudflared*)
+2. Copy the token from the install command (`cloudflared tunnel run --token <TOKEN>`)
+3. Add a **Public Hostname**: domain `devbry.online` → service `HTTP` → URL `client:80`
+
+Then on the NAS:
+
 ```bash
-docker-compose down
+grep -q CF_TUNNEL_TOKEN .env || echo "CF_TUNNEL_TOKEN=<paste-token>" >> .env
+docker compose up -d --force-recreate cloudflared
+docker compose logs cloudflared --tail 20    # expect "Registered tunnel connection"
 ```
 
-## Viewing Logs
+Until configured, skip the tunnel entirely: `docker compose stop cloudflared`.
+
+## 6. Services
+
+| Service | Local | Public |
+|---|---|---|
+| Client (nginx) | `http://<NAS-IP>:38080` | `https://devbry.online` |
+| Server (API) | `http://<NAS-IP>:3001` | via nginx `/api` proxy — not exposed directly |
+| Postgres | internal network only (`5432/tcp`) | — |
+
+## 7. Maintenance
+
 ```bash
-docker-compose logs -f
-docker-compose logs server
-docker-compose logs client
+docker compose stop            # stop stack (survives reboot unless disabled)
+docker compose down            # stop + remove containers (keeps data volume)
+docker compose down -v         # ⚠️ also deletes the database volume
+docker compose logs -f         # follow all logs
+docker compose logs server     # API only
 ```
+
+### Browser caching (service worker)
+
+The client registers a service worker (`client/public/sw.js`, cache name `fsis-v2`) with a cache-first strategy for `/logo.png`, `manifest.json`, etc. After changing any static asset, **bump `CACHE_NAME`** (e.g. `fsis-v3`) in the same commit so browsers fetch fresh copies.
+
+## 8. Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Container restarts every few seconds | Crash at startup — check logs | `docker compose logs <service> --tail 30` |
+| `password authentication failed for user ...` | Seed/service using credentials that don't match the initialized DB | Run seeds via the `server` container (`node dist/db/...`); verify `.env` matches the role shown by `psql -c "\du"` |
+| `role "..." does not exist` | Volume was initialized before the current `DB_USER` was set | Wipe & re-init: `docker compose down -v && docker compose up -d --build` (data loss) |
+| `ports are not available ... bind: address already in use` | Host port already used (e.g. local dev server on 3001) | Free the port or change `SERVER_PORT`/`CLIENT_PORT` in `.env` |
+| Login modal reappears after page reload | Account number missing from `personnel` table | Re-import personnel / verify row exists: `SELECT COUNT(*) FROM personnel;` |
+| Old logo/assets after deploy | Service worker cache | Bump `CACHE_NAME` in `sw.js`; clients clear automatically on next load |
+| NAS files diverge from GitHub (merge errors on pull) | Direct edits were made on the NAS | `git reset --hard origin/main` (discards NAS-local edits; `.env` is untracked and safe) |
+| Nginx: `host not found in upstream` | Config references `host.docker.internal`, which doesn't exist in this Docker network | Use compose service names — `proxy_pass http://server:3001;` |
+
+## 9. Release checklist
+
+- [ ] Type-checks pass locally (`npx tsc --noEmit` in `client/` and `server/`)
+- [ ] Tested locally: `docker compose up -d --build postgres server client`
+- [ ] Static assets changed? → bumped `CACHE_NAME` in `sw.js`
+- [ ] Committed & pushed from the PC
+- [ ] On NAS: `git pull origin main && docker compose up -d --build`
+- [ ] `docker compose ps` healthy + login + core flows verified
