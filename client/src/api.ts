@@ -94,6 +94,32 @@ export async function importPersonnel(rows: Omit<Personnel, "id" | "created_at">
   return res.json();
 }
 
+export async function createPersonnel(data: Omit<Personnel, "id" | "created_at">): Promise<Personnel> {
+  const res = await fetch(`${BASE}/personnel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || "Failed to create personnel");
+  }
+  return res.json();
+}
+
+export async function updatePersonnel(id: number, data: Omit<Personnel, "id" | "created_at">): Promise<Personnel> {
+  const res = await fetch(`${BASE}/personnel/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || "Failed to update personnel");
+  }
+  return res.json();
+}
+
 export async function deletePersonnel(id: number): Promise<void> {
   const res = await fetch(`${BASE}/personnel/${id}`, { method: "DELETE", headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to delete personnel");

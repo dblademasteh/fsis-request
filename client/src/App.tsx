@@ -13,6 +13,7 @@ import RequestTable from "./components/RequestTable";
 import PersonnelManager from "./components/PersonnelManager";
 import NotificationPanel from "./components/NotificationPanel";
 import NotificationBellButton from "./components/NotificationBellButton";
+import { AppLogo } from "./components/AppLogo";
 
 type Page = "landing" | "submit" | "track" | "admin" | "how" | "submit_category";
 
@@ -52,6 +53,8 @@ export default function App() {
   const [requests, setRequests] = useState<TransferRequest[]>([]);
   const requestsRef = useRef<TransferRequest[]>([]);
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [personnelLoaded, setPersonnelLoaded] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [page, setPage] = useState<Page>("landing");
   const [isAdminAuth, setIsAdminAuth] = useState(() => !!localStorage.getItem("fsis_auth_token"));
   const [_authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem("fsis_auth_token"));
@@ -164,7 +167,13 @@ export default function App() {
   useEffect(() => { requestsRef.current = requests; }, [requests]);
 
   const loadPersonnel = useCallback(async () => {
-    try { setPersonnel(await fetchPersonnel()); } catch { console.error("Failed to load personnel"); }
+    try {
+      setPersonnel(await fetchPersonnel());
+    } catch {
+      console.error("Failed to load personnel");
+    } finally {
+      setPersonnelLoaded(true);
+    }
   }, []);
 
   useEffect(() => { loadStations(); loadRequests(); loadPersonnel(); }, [loadStations, loadRequests, loadPersonnel]);
@@ -185,10 +194,24 @@ export default function App() {
   const myDisplayName = isLoggedIn ? [...(me.rank ? [me.rank] : []), me.first_name, me.last_name].filter(Boolean).join(" ") : "";
 
   useEffect(() => {
-    if (dpaAccepted && !isLoggedIn) {
+    if (!personnelLoaded) return; // wait for data before judging session
+    if (isLoggedIn) {
+      setShowAccountModal(false);
+    } else if (dpaAccepted) {
       setShowAccountModal(true);
     }
-  }, [dpaAccepted, isLoggedIn]);
+  }, [dpaAccepted, isLoggedIn, personnelLoaded]);
+
+  // Splash screen: hide shortly after initial data settles (with a safety timeout)
+  useEffect(() => {
+    if (!showSplash) return;
+    if (personnelLoaded) {
+      const t = setTimeout(() => setShowSplash(false), 500);
+      return () => clearTimeout(t);
+    }
+    const fallback = setTimeout(() => setShowSplash(false), 2500);
+    return () => clearTimeout(fallback);
+  }, [personnelLoaded, showSplash]);
 
   const logoutUser = () => {
     localStorage.removeItem("fsis_account_number");
@@ -286,6 +309,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-base-200 flex flex-col">
+      {/* Splash Screen */}
+      {showSplash && (
+        <div className="fixed inset-0 z-[90] bg-base-100 flex flex-col items-center justify-center gap-6 animate-[fadeIn_0.3s_ease-out]" role="status" aria-live="polite" aria-label="Loading application">
+          <AppLogo variant="splash" />
+          <p className="text-xs uppercase tracking-[0.25em] text-base-content/40">BFP Region II &middot; eRequest</p>
+        </div>
+      )}
+
       {/* Skip to content */}
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary focus:text-primary-content focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary/50">
         Skip to main content
@@ -498,19 +529,19 @@ onSubmit={() => setPage("submit_category")}
         {/* Admin */}
         {page === "admin" && isAdminAuth && (
           <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-[fadeUp_0.4s_ease-out_both]">
-              <div className="flex items-center gap-3">
-                <div className="bg-accent/10 p-2.5 rounded-xl">
+            <div className="max-sm:sticky max-sm:top-0 max-sm:z-20 max-sm:-mx-3 max-sm:px-3 max-sm:py-2 max-sm:bg-base-100/95 max-sm:backdrop-blur max-sm:border-b max-sm:border-base-200 flex items-center justify-between gap-3 animate-[fadeUp_0.4s_ease-out_both]">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="bg-accent/10 p-2.5 rounded-xl shrink-0">
                   <ShieldCheck className="h-5 w-5 text-accent" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-xl font-bold tracking-tight text-base-content">Admin Dashboard</h2>
-                  <p className="text-xs sm:text-sm text-base-content/50">Manage and process incoming requests</p>
+                  <p className="text-xs sm:text-sm text-base-content/50 truncate">Manage and process incoming requests</p>
                 </div>
               </div>
-              <button onClick={logoutAdmin} className="btn btn-ghost btn-sm gap-2 text-error self-start sm:self-auto">
+              <button onClick={logoutAdmin} className="btn btn-ghost btn-sm gap-2 text-error shrink-0 hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1">
                 <LogOut className="h-4 w-4" />
-                Logout
+                <span>Logout</span>
               </button>
             </div>
 

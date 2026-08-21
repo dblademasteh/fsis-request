@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import type { TransferRequest } from "../types";
 import { StatusBadge, StatusStepper } from "./TrackPage";
+import { AppLogo } from "./AppLogo";
 
 interface LandingPageProps {
   latestRequest: TransferRequest | null;
@@ -93,12 +94,7 @@ export default function LandingPage({
         </div>
 
         <div className="relative max-w-4xl mx-auto px-4 sm:px-6 pt-10 sm:pt-12 pb-8 sm:pb-10 flex flex-col items-center text-center gap-4 sm:gap-5">
-          <img
-            src="/logo.png"
-            alt="Bureau of Fire Protection logo"
-            loading="eager"
-            className="h-20 w-20 sm:h-24 sm:w-24 object-contain rounded-3xl drop-shadow-lg animate-[fadeUp_0.5s_ease-out_both] [animation-delay:80ms]"
-          />
+          <AppLogo className="animate-[fadeUp_0.5s_ease-out_both] [animation-delay:80ms]" />
 
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-base-content leading-tight animate-[fadeUp_0.5s_ease-out_both] [animation-delay:160ms]">
             Unified BFP R2 <span className="text-primary">eRequest Form</span>

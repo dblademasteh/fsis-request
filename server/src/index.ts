@@ -283,6 +283,74 @@ app.post("/api/personnel/import", authenticate, async (req, res) => {
   }
 });
 
+app.post("/api/personnel", authenticate, async (req, res) => {
+  const { first_name, middle_name, last_name, suffix, rank, designation, account_number, email, station } = req.body;
+
+  if (!first_name?.trim() || !last_name?.trim()) {
+    return res.status(400).json({ error: "First name and last name are required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO personnel (first_name, middle_name, last_name, suffix, rank, designation, account_number, email, station)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        first_name.trim(),
+        middle_name || null,
+        last_name.trim(),
+        suffix || null,
+        rank || null,
+        designation || null,
+        account_number || null,
+        email || null,
+        station || null,
+      ]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to create personnel" });
+  }
+});
+
+app.put("/api/personnel/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+  const { first_name, middle_name, last_name, suffix, rank, designation, account_number, email, station } = req.body;
+
+  if (!first_name?.trim() || !last_name?.trim()) {
+    return res.status(400).json({ error: "First name and last name are required" });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE personnel
+       SET first_name = $1, middle_name = $2, last_name = $3, suffix = $4, rank = $5, designation = $6, account_number = $7, email = $8, station = $9
+       WHERE id = $10
+       RETURNING *`,
+      [
+        first_name.trim(),
+        middle_name || null,
+        last_name.trim(),
+        suffix || null,
+        rank || null,
+        designation || null,
+        account_number || null,
+        email || null,
+        station || null,
+        id,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Personnel not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update personnel" });
+  }
+});
+
 app.delete("/api/personnel/:id", authenticate, async (req, res) => {
   const { id } = req.params;
 

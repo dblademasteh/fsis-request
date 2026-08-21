@@ -1,7 +1,10 @@
 import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import type { Personnel } from "../types";
-import { importPersonnel, deletePersonnel } from "../api";
-import { Users, Upload, Trash2, Search, FileText, AlertCircle, CheckCircle2, X, Download } from "lucide-react";
+import { RANK_OPTIONS, DESIGNATION_OPTIONS } from "../types";
+import { importPersonnel, deletePersonnel, createPersonnel, updatePersonnel } from "../api";
+import { ConfirmModal } from "./ConfirmModal";
+import { Users, Upload, Trash2, Search, FileText, AlertCircle, CheckCircle2, X, Download, Pencil, UserPlus } from "lucide-react";
 
 interface Props {
   personnel: Personnel[];
@@ -10,12 +13,119 @@ interface Props {
 
 const CSV_HEADERS = ["first_name", "middle_name", "last_name", "suffix", "rank", "designation", "account_number", "email", "station"];
 
+type PersonnelForm = {
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  suffix: string;
+  rank: string;
+  designation: string;
+  account_number: string;
+  email: string;
+  station: string;
+};
+
+const EMPTY_FORM: PersonnelForm = {
+  first_name: "",
+  middle_name: "",
+  last_name: "",
+  suffix: "",
+  rank: "",
+  designation: "",
+  account_number: "",
+  email: "",
+  station: "",
+};
+
 export default function PersonnelManager({ personnel, onUpdated }: Props) {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; show: boolean }>({ msg: "", show: false });
+  const [deleteTarget, setDeleteTarget] = useState<{ show: boolean; p: Personnel | null }>({ show: false, p: null });
   const [preview, setPreview] = useState<Omit<Personnel, "id" | "created_at">[] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<Personnel | null>(null);
+  const [form, setForm] = useState<PersonnelForm>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToast({ msg, show: true });
+    setTimeout(() => setToast({ msg: "", show: false }), 3000);
+  }, []);
+
+  const showError = useCallback((msg: string) => {
+    setError(msg);
+    setTimeout(() => setError(null), 3000);
+  }, []);
+
+  const openCreate = useCallback(() => {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setFormError(null);
+    setModalOpen(true);
+  }, []);
+
+  const openEdit = useCallback((p: Personnel) => {
+    setEditing(p);
+    setForm({
+      first_name: p.first_name || "",
+      middle_name: p.middle_name || "",
+      last_name: p.last_name || "",
+      suffix: p.suffix || "",
+      rank: p.rank || "",
+      designation: p.designation || "",
+      account_number: p.account_number || "",
+      email: p.email || "",
+      station: p.station || "",
+    });
+    setFormError(null);
+    setModalOpen(true);
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setEditing(null);
+    setFormError(null);
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.first_name.trim() || !form.last_name.trim()) {
+      setFormError("First name and last name are required.");
+      return;
+    }
+    setSaving(true);
+    setFormError(null);
+    const payload = {
+      first_name: form.first_name.trim(),
+      middle_name: form.middle_name.trim() || null,
+      last_name: form.last_name.trim(),
+      suffix: form.suffix.trim() || null,
+      rank: form.rank || null,
+      designation: form.designation || null,
+      account_number: form.account_number.trim() || null,
+      email: form.email.trim() || null,
+      station: form.station || null,
+    };
+    try {
+      if (editing) {
+        await updatePersonnel(editing.id, payload);
+        showToast(`Updated ${payload.first_name} ${payload.last_name}.`);
+      } else {
+        await createPersonnel(payload);
+        showToast(`Added ${payload.first_name} ${payload.last_name}.`);
+      }
+      closeModal();
+      onUpdated();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to save personnel. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filtered = personnel.filter((p) => {
     if (!search.trim()) return true;
@@ -73,11 +183,11 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
       const text = event.target?.result as string;
       const rows = parseCSV(text);
       if (rows.length === 0) {
-        setImportResult({ success: false, message: "No valid rows found. Check your CSV format." });
+        showError("No valid rows found. Check your CSV format.");
         return;
       }
       setPreview(rows);
-      setImportResult(null);
+      setError(null);
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -86,27 +196,37 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
   const handleImport = async () => {
     if (!preview) return;
     setImporting(true);
-    setImportResult(null);
     try {
       const result = await importPersonnel(preview);
-      setImportResult({ success: true, message: `Successfully imported ${result.imported} personnel records.` });
+      showToast(`Successfully imported ${result.imported} personnel records.`);
       setPreview(null);
       onUpdated();
     } catch {
-      setImportResult({ success: false, message: "Failed to import personnel. Please try again." });
+      showError("Failed to import personnel. Please try again.");
     } finally {
       setImporting(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this personnel record?")) return;
+  const requestDelete = useCallback((p: Personnel) => {
+    setDeleteTarget({ show: true, p });
+  }, []);
+
+  const cancelDelete = useCallback(() => {
+    setDeleteTarget({ show: false, p: null });
+  }, []);
+
+  const handleDelete = async () => {
+    const p = deleteTarget.p;
+    if (!p) return;
     try {
-      await deletePersonnel(id);
+      await deletePersonnel(p.id);
+      showToast(`Deleted ${[p.first_name, p.last_name].filter(Boolean).join(" ")}.`);
       onUpdated();
     } catch {
-      setImportResult({ success: false, message: "Failed to delete personnel. Please try again." });
-      setTimeout(() => setImportResult(null), 3000);
+      showError("Failed to delete personnel. Please try again.");
+    } finally {
+      cancelDelete();
     }
   };
 
@@ -135,16 +255,20 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
               <p className="text-xs sm:text-sm text-base-content/50">{personnel.length} personnel record{personnel.length !== 1 ? "s" : ""}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 self-start sm:self-auto">
-            <button onClick={downloadTemplate} className="btn btn-outline btn-xs sm:btn-sm gap-1.5 sm:gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1">
-              <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Template</span>
+          <div className="flex items-stretch gap-2 self-start sm:self-auto w-full sm:w-auto max-sm:grid max-sm:grid-cols-2">
+            <button onClick={downloadTemplate} className="btn btn-outline btn-sm gap-2 justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1">
+              <Download className="h-4 w-4 shrink-0" />
+              <span className="truncate">Template</span>
             </button>
-            <button onClick={() => fileRef.current?.click()} className="btn btn-primary btn-xs sm:btn-sm gap-1.5 sm:gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1">
-              <Upload className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Import CSV</span>
+            <button onClick={() => fileRef.current?.click()} className="btn btn-outline btn-sm gap-2 justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1">
+              <Upload className="h-4 w-4 shrink-0" />
+              <span className="truncate">Import CSV</span>
             </button>
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
+            <button onClick={openCreate} className="btn btn-primary btn-sm gap-2 justify-center max-sm:col-span-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1">
+              <UserPlus className="h-4 w-4 shrink-0" />
+              <span className="truncate">Add Personnel</span>
+            </button>
           </div>
         </div>
 
@@ -161,13 +285,21 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
         </div>
       </div>
 
-      {/* Import Result */}
-      {importResult && (
-        <div className={`mx-6 mt-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm ${importResult.success ? "bg-success/10 text-success border border-success/20" : "bg-error/10 text-error border border-error/20"}`}>
-          {importResult.success ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-          <span className="flex-1">{importResult.message}</span>
-          <button onClick={() => setImportResult(null)} className="p-1 hover:opacity-70"><X className="h-3.5 w-3.5" /></button>
+      {/* Error Alert */}
+      {error && (
+        <div role="alert" className="mx-4 sm:mx-6 mt-4 px-3 py-2 rounded-xl bg-error/10 text-error border border-error/20 text-xs sm:text-sm flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{error}</span>
         </div>
+      )}
+
+      {/* Toast */}
+      {toast.show && createPortal(
+        <div role="alert" aria-live="polite" className="fixed top-4 right-4 z-[60] alert alert-success py-2 px-4 text-sm gap-3 shadow-lg animate-[slideIn_0.2s_ease-out]">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>{toast.msg}</span>
+        </div>,
+        document.body
       )}
 
       {/* Preview */}
@@ -249,17 +381,189 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => handleDelete(p.id)}
-                className="btn btn-ghost btn-xs text-error/60 hover:text-error hover:bg-error/10 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1"
-                aria-label="Delete personnel"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => openEdit(p)}
+                  className="btn btn-ghost btn-xs text-base-content/50 hover:text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                  aria-label="Edit personnel"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => requestDelete(p)}
+                  className="btn btn-ghost btn-xs text-error/60 hover:text-error hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1"
+                  aria-label="Delete personnel"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
+      {/* Create / Edit Modal */}
+      {modalOpen && (
+        <div className="modal modal-open" onClick={closeModal}>
+          <div className="modal-box max-w-lg bg-base-100 border border-base-300 rounded-2xl p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-base-200">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-secondary/10 p-2 rounded-lg">
+                  {editing ? <Pencil className="h-4 w-4 text-secondary" /> : <UserPlus className="h-4 w-4 text-secondary" />}
+                </div>
+                <h3 className="font-semibold text-base text-base-content">
+                  {editing ? "Edit Personnel" : "Add Personnel"}
+                </h3>
+              </div>
+              <button onClick={closeModal} className="btn btn-ghost btn-xs btn-circle" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSave} className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">First Name *</span>
+                <input
+                  type="text"
+                  value={form.first_name}
+                  onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+                  placeholder="Juan"
+                  autoFocus
+                  className="input input-bordered input-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              </label>
+
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Middle Name</span>
+                <input
+                  type="text"
+                  value={form.middle_name}
+                  onChange={(e) => setForm({ ...form, middle_name: e.target.value })}
+                  placeholder="Dela"
+                  className="input input-bordered input-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              </label>
+
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Last Name *</span>
+                <input
+                  type="text"
+                  value={form.last_name}
+                  onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+                  placeholder="Cruz"
+                  className="input input-bordered input-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              </label>
+
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Suffix</span>
+                <input
+                  type="text"
+                  value={form.suffix}
+                  onChange={(e) => setForm({ ...form, suffix: e.target.value })}
+                  placeholder="Jr, III..."
+                  className="input input-bordered input-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              </label>
+
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Rank</span>
+                <select
+                  value={form.rank}
+                  onChange={(e) => setForm({ ...form, rank: e.target.value })}
+                  className="select select-bordered select-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <option value="">— Select rank —</option>
+                  {RANK_OPTIONS.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Designation</span>
+                <select
+                  value={form.designation}
+                  onChange={(e) => setForm({ ...form, designation: e.target.value })}
+                  className="select select-bordered select-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <option value="">— Select designation —</option>
+                  {DESIGNATION_OPTIONS.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Account Number</span>
+                <input
+                  type="text"
+                  value={form.account_number}
+                  onChange={(e) => setForm({ ...form, account_number: e.target.value })}
+                  placeholder="2024-0001"
+                  className="input input-bordered input-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary font-mono"
+                />
+              </label>
+
+              <label className="form-control">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Email</span>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  placeholder="juan.cruz@bfp.gov.ph"
+                  className="input input-bordered input-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              </label>
+
+              <label className="form-control sm:col-span-2">
+                <span className="label-text text-xs font-medium text-base-content/60 mb-1">Station</span>
+                <input
+                  type="text"
+                  value={form.station}
+                  onChange={(e) => setForm({ ...form, station: e.target.value })}
+                  placeholder="Tuguegarao City Fire Station"
+                  className="input input-bordered input-sm w-full bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+              </label>
+
+              {formError && (
+                <div className="sm:col-span-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-error/10 text-error border border-error/20 text-xs">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              <div className="sm:col-span-2 flex items-center justify-end gap-2 pt-2 border-t border-base-200 mt-1">
+                <button type="button" onClick={closeModal} className="btn btn-ghost btn-sm" disabled={saving}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary btn-sm gap-1.5 min-w-28" disabled={saving}>
+                  {saving ? (
+                    <>
+                      <span className="loading loading-spinner loading-xs" />
+                      Saving...
+                    </>
+                  ) : editing ? (
+                    "Save Changes"
+                  ) : (
+                    "Add Personnel"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation (global modal) */}
+      <ConfirmModal
+        show={deleteTarget.show}
+        title="Delete Personnel"
+        message={`Are you sure you want to delete ${[deleteTarget.p?.first_name, deleteTarget.p?.last_name].filter(Boolean).join(" ") || "this record"}? This action cannot be undone.`}
+        onConfirm={handleDelete}
+        onCancel={cancelDelete}
+      />
     </div>
   );
 }
