@@ -64,6 +64,25 @@ services:
     depends_on:
       - client
 
+  seed:
+    image: node:20-alpine
+    container_name: fsis-seed
+    working_dir: /app
+    command: sh -c "npm ci && npx ts-node src/db/deploy-stations.ts && npx ts-node src/db/seed-personnel.ts"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: fsis
+      DB_USER: fsis
+      DB_PASSWORD: fsis_password
+    volumes:
+      - ./server:/app
+    depends_on:
+      - postgres
+    networks:
+      - fsis-network
+    restart: "no"
+
 volumes:
   postgres_data:
 
