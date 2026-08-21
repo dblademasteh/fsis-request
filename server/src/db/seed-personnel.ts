@@ -1,9 +1,9 @@
 import pool from "./pool";
 import { readFileSync } from "fs";
+import path from "path";
 
 async function seed() {
-  import path from "path";
-const csvPath = path.resolve(__dirname, "personnel_template.csv");
+  const csvPath = path.resolve(__dirname, "personnel_template.csv");
   const csv = readFileSync(csvPath, "utf-8");
   const lines = csv.trim().split(/\r?\n/);
   const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
