@@ -15,7 +15,7 @@ DB_PASSWORD=your_secure_password_here
 DB_NAME=fsis
 JWT_SECRET=your_very_long_secret_key_at_least_32_characters
 BASE_URL=http://localhost:3001
-CLIENT_PORT=8080
+CLIENT_PORT=38080
 SERVER_PORT=3001
 ```
 
@@ -69,7 +69,7 @@ docker-compose up -d
 # Run initial setup
 docker-compose exec server npm run migrate
 docker-compose exec server ts-node src/db/deploy-stations.ts
-docker-compose exec server ts-node src/db/seed-personnel.ts
+docker-compose exec server ts-node src/db/seed-personnel.ts   # ensure personnel_template.csv is placed in server/src/db/
 ```
 
 ## Admin Login

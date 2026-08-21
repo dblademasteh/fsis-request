@@ -23,7 +23,7 @@ async function migrate() {
         middle_name VARCHAR(255),
         last_name VARCHAR(255) NOT NULL,
         suffix VARCHAR(50),
-        email VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
         designation VARCHAR(255),
         status VARCHAR(50) NOT NULL DEFAULT 'pending',
         new_rank VARCHAR(100),
@@ -155,6 +155,7 @@ async function migrate() {
         ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_last_name VARCHAR(255);
         ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_suffix VARCHAR(50);
         ALTER TABLE transfer_requests ADD COLUMN IF NOT EXISTS new_email VARCHAR(255);
+        ALTER TABLE transfer_requests ALTER COLUMN email DROP NOT NULL;
       EXCEPTION WHEN duplicate_column THEN null;
       END $$;
     `);

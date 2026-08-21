@@ -140,11 +140,20 @@ app.post("/api/requests", async (req, res) => {
     new_email,
   } = req.body;
 
-  if (!purpose_of_request || !first_name || !last_name || !email) {
+  if (!purpose_of_request || !first_name || !last_name) {
     return res.status(400).json({ error: "All required fields must be filled" });
   }
 
   const isTransfer = purpose_of_request === "Transfer of Unit Assignment";
+  const isUpdatePurpose = purpose_of_request.startsWith("Update ");
+
+  if (!isTransfer && !isUpdatePurpose && !email) {
+    return res.status(400).json({ error: "Email is required for this request type" });
+  }
+
+  if (!isTransfer && !isUpdatePurpose && !account_number) {
+    return res.status(400).json({ error: "Account number is required for this request type" });
+  }
 
   if (isTransfer) {
     if (!station_from_id || !station_to_id) {

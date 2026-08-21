@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 
 interface Props {
   label: string;
@@ -63,13 +63,27 @@ export default function SearchableSelect({
     setActiveIndex(-1);
   }, [onChange]);
 
+  const openDropdown = useCallback(() => {
+    if (!open) {
+      setOpen(true);
+      setQuery(value);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [open, value]);
+
+  const handleClear = useCallback(() => {
+    onChange("");
+    setOpen(false);
+    setQuery("");
+    setActiveIndex(-1);
+  }, [onChange]);
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!open) {
       if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        setOpen(true);
-        setQuery("");
-        setTimeout(() => inputRef.current?.focus(), 0);
+        openDropdown();
+        return;
       }
       return;
     }
@@ -118,15 +132,27 @@ export default function SearchableSelect({
           type="text"
           value={open ? query : value}
           onChange={(e) => { if (open) { setQuery(e.target.value); setActiveIndex(-1); } }}
-          onFocus={() => { if (!open) { setOpen(true); setQuery(""); } }}
+          onFocus={openDropdown}
           onKeyDown={handleKeyDown}
           placeholder={open ? placeholder : (value || placeholder)}
-          className={`input input-bordered w-full pr-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
-            !value && !open ? "text-base-content/40" : ""
-          }`}
+          className={`input input-bordered w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
+            value && !open ? "pr-14" : "pr-8"
+          } ${!value && !open ? "text-base-content/40" : ""}`}
           aria-haspopup="listbox"
           aria-expanded={open}
         />
+        {value && !open && (
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={`Clear ${label}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleClear}
+            className="absolute right-7 top-0 h-full px-1.5 flex items-center text-base-content/35 hover:text-error transition-colors rounded-r-lg"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )}
         <button
           type="button"
           tabIndex={-1}
@@ -135,9 +161,7 @@ export default function SearchableSelect({
               setOpen(false);
               setQuery("");
             } else {
-              setOpen(true);
-              setQuery("");
-              setTimeout(() => inputRef.current?.focus(), 0);
+              openDropdown();
             }
           }}
           className="absolute right-0 top-0 h-full px-2.5 flex items-center hover:bg-base-200 rounded-r-lg transition-colors"

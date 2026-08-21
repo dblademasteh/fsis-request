@@ -122,7 +122,7 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
   };
 
   return (
-    <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+    <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden animate-[fadeUp_0.35s_ease-out_both]">
       {/* Header */}
       <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-base-200">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
