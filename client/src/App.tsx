@@ -3,20 +3,24 @@ import type { FireStation, TransferRequest, Personnel } from "./types";
 import { fetchStations, fetchRequests, trackRequests, fetchPersonnel, loginUser } from "./api";
 import { playNewRequest, playApproved, playDenied } from "./sounds";
 import { requestNotificationPermission, showDeviceNotification, createNotification, type AppNotification } from "./notifications";
-import { Plus, Search, ShieldCheck, Home, Clock, CheckCircle2, AlertCircle, Hash, Lock, LogOut, User, KeyRound, Eye, EyeOff, Moon, Sun, Users, FileText, Shield, Fingerprint, Bell } from "lucide-react";
+import { Plus, Search, ShieldCheck, Home, CheckCircle2, AlertCircle, Hash, Lock, LogOut, User, KeyRound, Eye, EyeOff, Moon, Sun, Users, FileText, Shield, Fingerprint, Bell, Info } from "lucide-react";
+import LandingPage from "./components/LandingPage";
+import HowItWorksPage from "./components/HowItWorksPage";
 import RequestForm from "./components/RequestForm";
+import { RequestCategories } from "./components/RequestCategories";
+import TrackPage from "./components/TrackPage";
 import RequestTable from "./components/RequestTable";
 import PersonnelManager from "./components/PersonnelManager";
 import NotificationPanel from "./components/NotificationPanel";
 import NotificationBellButton from "./components/NotificationBellButton";
 
-type Page = "landing" | "submit" | "track" | "admin";
+type Page = "landing" | "submit" | "track" | "admin" | "how" | "submit_category";
 
 function AdminTabs({ requests, personnel, loadRequests, loadPersonnel }: { requests: TransferRequest[]; personnel: Personnel[]; loadRequests: () => void; loadPersonnel: () => void }) {
   const [tab, setTab] = useState<"requests" | "personnel">("requests");
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-[fadeUp_0.4s_ease-out_both] [animation-delay:80ms]">
       <div className="flex items-center gap-2 bg-base-100 rounded-xl border border-base-300 p-1">
         <button
           onClick={() => setTab("requests")}
@@ -46,12 +50,14 @@ function AdminTabs({ requests, personnel, loadRequests, loadPersonnel }: { reque
 export default function App() {
   const [stations, setStations] = useState<FireStation[]>([]);
   const [requests, setRequests] = useState<TransferRequest[]>([]);
+  const requestsRef = useRef<TransferRequest[]>([]);
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [page, setPage] = useState<Page>("landing");
   const [isAdminAuth, setIsAdminAuth] = useState(() => !!localStorage.getItem("fsis_auth_token"));
   const [_authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem("fsis_auth_token"));
 
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginShowPassword, setLoginShowPassword] = useState(false);
@@ -62,6 +68,7 @@ export default function App() {
   const [trackResults, setTrackResults] = useState<TransferRequest[] | null>(null);
   const [trackLoading, setTrackLoading] = useState(false);
   const [trackError, setTrackError] = useState("");
+  const [selectedPurpose, setSelectedPurpose] = useState<string>("");
 
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
@@ -124,11 +131,12 @@ export default function App() {
             if (r.account_number === userAccountNumber) {
               const wasSeen = prevRequestIds.current.has(r.id);
               if (wasSeen) {
-                const prevReq = requests.find((req) => req.id === r.id);
+                const prevReq = requestsRef.current.find((req) => req.id === r.id);
                 if (prevReq && prevReq.status === "pending" && r.status === "approved") {
-                  const notif = createNotification("approved", r.first_name, r.last_name);
+                  const purposeMsg = r.purpose_of_request;
+                  const notif = createNotification("approved", r.first_name, r.last_name, purposeMsg);
                   setNotifications((prev) => [notif, ...prev].slice(0, 50));
-                  showDeviceNotification("Request Approved", "Your transfer request has been approved.");
+                  showDeviceNotification("Request Approved", purposeMsg === "Transfer of Unit Assignment" ? `${r.first_name}'s ${purposeMsg.toLowerCase()} request has been approved.` : (purposeMsg === "New FSIS Account" ? `New e Request account approved for ${r.first_name} ${r.last_name}. Password reset email sent.` : `Your ${purposeMsg.toLowerCase()} request has been approved.`));
                   playApproved();
                 }
                 if (prevReq && prevReq.status === "pending" && r.status === "denied") {
@@ -151,19 +159,15 @@ export default function App() {
     } catch {
       console.error("Failed to load requests");
     }
-  }, [isAdminAuth, userAccountNumber, requests]);
+  }, [isAdminAuth, userAccountNumber]);
+
+  useEffect(() => { requestsRef.current = requests; }, [requests]);
 
   const loadPersonnel = useCallback(async () => {
     try { setPersonnel(await fetchPersonnel()); } catch { console.error("Failed to load personnel"); }
   }, []);
 
   useEffect(() => { loadStations(); loadRequests(); loadPersonnel(); }, [loadStations, loadRequests, loadPersonnel]);
-
-  useEffect(() => {
-    if (page === "track" && userAccountNumber && !trackAccountNumber) {
-      setTrackAccountNumber(userAccountNumber);
-    }
-  }, [page, userAccountNumber]);
 
   useEffect(() => {
     const interval = setInterval(() => { loadRequests(); }, 15000);
@@ -176,12 +180,41 @@ export default function App() {
     }
   }, [showLoginModal]);
 
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
-  const approvedCount = requests.filter((r) => r.status === "approved").length;
+  const me = personnel.find((p) => p.account_number === userAccountNumber);
+  const isLoggedIn = !!me && !!userAccountNumber;
+  const myDisplayName = isLoggedIn ? [...(me.rank ? [me.rank] : []), me.first_name, me.last_name].filter(Boolean).join(" ") : "";
+
+  useEffect(() => {
+    if (dpaAccepted && !isLoggedIn) {
+      setShowAccountModal(true);
+    }
+  }, [dpaAccepted, isLoggedIn]);
+
+  const logoutUser = () => {
+    localStorage.removeItem("fsis_account_number");
+    localStorage.removeItem("fsis_dpa_accepted");
+    setUserAccountNumber("");
+    setDpaAccepted(false);
+  };
+
+  const landingNotifWidget = (
+    <div className="relative" data-notif-wrapper>
+      <div data-notif-trigger>
+        <NotificationBellButton count={unreadCount} onClick={() => setShowNotifPanel(!showNotifPanel)} />
+      </div>
+      {showNotifPanel && (
+        <div className="absolute right-0 top-full mt-2 z-50">
+          <NotificationPanel notifications={notifications} onMarkAllRead={markAllRead} onClear={clearNotifications} />
+        </div>
+      )}
+    </div>
+  );
 
   const handleTrack = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!trackAccountNumber.trim()) return;
+    localStorage.setItem("fsis_account_number", trackAccountNumber.trim());
+    setUserAccountNumber(trackAccountNumber.trim());
     setTrackLoading(true);
     setTrackError("");
     setTrackResults(null);
@@ -195,6 +228,16 @@ export default function App() {
       setTrackLoading(false);
     }
   };
+
+  // Auto-load saved account number when entering track page
+  useEffect(() => {
+    if (page === "track") {
+      const saved = localStorage.getItem("fsis_account_number");
+      if (saved && !trackAccountNumber) {
+        setTrackAccountNumber(saved);
+      }
+    }
+  }, [page]);
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -221,13 +264,17 @@ export default function App() {
     setPage("landing");
   };
 
-  const handleRequestCreated = () => {
+  const handleRequestCreated = (accountNum?: string) => {
+    if (accountNum && !userAccountNumber) {
+      localStorage.setItem("fsis_account_number", accountNum);
+      setUserAccountNumber(accountNum);
+    }
     loadRequests();
     setSubmitSuccess(true);
     setTimeout(() => {
       setSubmitSuccess(false);
       setPage("track");
-    }, 1500);
+    }, 3000);
   };
 
   const closeLoginModal = () => {
@@ -259,8 +306,9 @@ export default function App() {
                 </button>
                 <div className="w-px h-6 bg-base-300 mx-1" />
                 {[
-                  { id: "submit" as Page, icon: Plus, label: "New Request" },
+                  { id: "submit_category" as Page, icon: Plus, label: "New Request" },
                   { id: "track" as Page, icon: Search, label: "Track" },
+                  { id: "how" as Page, icon: Info, label: "How it Works" },
                 ].map(({ id, icon: Icon, label }) => (
                   <button
                     key={id}
@@ -314,11 +362,12 @@ export default function App() {
       {page !== "landing" && (
         <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-base-100 border-t border-base-300 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]" role="navigation" aria-label="Main navigation" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           <div className="flex items-center justify-around py-1.5 px-2">
-            {[
-              { id: "submit" as Page, icon: Plus, label: "New" },
-              { id: "track" as Page, icon: Search, label: "Track" },
-              { id: "admin" as Page, icon: ShieldCheck, label: "Admin" },
-            ].map(({ id, icon: Icon, label }) => (
+              {[
+                { id: "submit_category" as Page, icon: Plus, label: "New Request" },
+                { id: "track" as Page, icon: Search, label: "Track" },
+                { id: "how" as Page, icon: Info, label: "Guide" },
+                { id: "admin" as Page, icon: ShieldCheck, label: "Admin" },
+              ].map(({ id, icon: Icon, label }) => (
               <button
                 key={id}
                 onClick={() => id === "admin" ? openAdminLogin() : setPage(id)}
@@ -377,6 +426,28 @@ export default function App() {
       )}
 
       {/* Main */}
+      {page === "landing" ? (
+        <LandingPage
+          latestRequest={
+            userAccountNumber
+              ? requests
+                  .filter((r) => r.account_number === userAccountNumber)
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null
+              : null
+          }
+          displayName={myDisplayName}
+          onLogoutUser={logoutUser}
+          notifWidget={landingNotifWidget}
+          dpaAccepted={dpaAccepted}
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode(!darkMode)}
+onSubmit={() => setPage("submit_category")}
+          onTrack={() => setPage("track")}
+          onAdminLogin={openAdminLogin}
+          onShowPrivacy={() => setShowPrivacyModal(true)}
+          onHowItWorks={() => setPage("how")}
+        />
+      ) : (
       <main id="main-content" className="flex-1 max-w-6xl mx-auto w-full px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 md:pt-8 pb-24 sm:pb-8 md:pb-8 scroll-mt-14">
         {/* Success Toast */}
         {submitSuccess && (
@@ -386,220 +457,76 @@ export default function App() {
           </div>
         )}
 
-        {/* Landing */}
-        {page === "landing" && (
-          <div className="max-w-4xl mx-auto space-y-8 sm:space-y-10">
-            {/* Branding */}
-            <div className="text-center space-y-3 sm:space-y-4 pt-4 sm:pt-6">
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setDarkMode(!darkMode)}
-                  className="p-2 rounded-lg text-base-content/40 hover:text-base-content hover:bg-base-200 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-                >
-                  {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-                </button>
-              </div>
-              <img src="/logo.png" alt="BFP Logo" loading="lazy" className="h-16 w-16 sm:h-20 sm:w-20 object-contain rounded-3xl mx-auto" />
-              <div className="space-y-1">
-                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-base-content tracking-tight">Unified FSIS Request Form</h1>
-                <p className="text-xs sm:text-sm text-base-content/50">Bureau of Fire Protection &mdash; Region II, Cagayan Valley</p>
-              </div>
-              <div className="flex items-center justify-center gap-4 sm:gap-6">
-                <div className="flex items-center gap-3 sm:gap-4 bg-warning/10 border border-warning/20 rounded-2xl px-5 sm:px-7 py-3 sm:py-4">
-                  <Clock className="h-6 w-6 sm:h-7 sm:w-7 text-warning" />
-                  <div className="text-left">
-                    <div className="text-2xl sm:text-3xl font-bold text-base-content leading-none">{pendingCount}</div>
-                    <div className="text-xs sm:text-sm text-base-content/50">Pending</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 sm:gap-4 bg-success/10 border border-success/20 rounded-2xl px-5 sm:px-7 py-3 sm:py-4">
-                  <CheckCircle2 className="h-6 w-6 sm:h-7 sm:w-7 text-success" />
-                  <div className="text-left">
-                    <div className="text-2xl sm:text-3xl font-bold text-base-content leading-none">{approvedCount}</div>
-                    <div className="text-xs sm:text-sm text-base-content/50">Approved</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 md:gap-5">
-              {[
-                { icon: Plus, bgClass: "bg-primary/10", iconClass: "text-primary", hoverBorder: "hover:border-primary/30", glowClass: "bg-primary/5", title: "Submit Request", desc: "Create a new transfer, update, or account request", action: () => setPage("submit") },
-                { icon: Search, bgClass: "bg-secondary/10", iconClass: "text-secondary", hoverBorder: "hover:border-secondary/30", glowClass: "bg-secondary/5", title: "Track Request", desc: "Check the status of your submitted requests", action: () => setPage("track") },
-                { icon: ShieldCheck, bgClass: "bg-accent/10", iconClass: "text-accent", hoverBorder: "hover:border-accent/30", glowClass: "bg-accent/5", title: "Admin Panel", desc: "Manage and process incoming transfer requests", action: openAdminLogin },
-              ].map(({ icon: Icon, bgClass, iconClass, hoverBorder, glowClass, title, desc, action }) => (
-                <button key={title} onClick={action} className={`group relative bg-base-100 rounded-2xl p-5 sm:p-6 md:p-8 text-left border border-base-300 ${hoverBorder} shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2`}>
-                  <div className={`absolute top-0 right-0 w-24 sm:w-32 h-24 sm:h-32 ${glowClass} rounded-full -translate-y-12 sm:-translate-y-16 translate-x-12 sm:translate-x-16 group-hover:scale-150 transition-transform duration-300`} />
-                  <div className="relative">
-                    <div className={`inline-flex p-2.5 sm:p-3 rounded-xl ${bgClass} mb-3 sm:mb-4`}>
-                      <Icon className={`h-5 w-5 sm:h-6 sm:w-6 ${iconClass}`} />
-                    </div>
-                    <h3 className="text-base sm:text-lg font-semibold text-base-content mb-1 sm:mb-1.5">{title}</h3>
-                    <p className="text-xs sm:text-sm text-base-content/50 leading-relaxed">{desc}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Privacy Notice Link */}
-            <div className="text-center pt-2">
-              <button
-                onClick={() => { setDpaAccepted(false); localStorage.removeItem("fsis_dpa_accepted"); }}
-                className="inline-flex items-center gap-1.5 text-xs text-base-content/40 hover:text-base-content/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <Shield className="h-3 w-3" />
-                Data Privacy Notice
-              </button>
-            </div>
+        {/* Submit - Categories */}
+        {page === "submit_category" && (
+          <div className="max-w-2xl mx-auto">
+            <RequestCategories onSelect={(purpose) => {
+              if (purpose) {
+                setSelectedPurpose(purpose);
+                setPage("submit");
+              } else {
+                setPage("landing");
+              }
+            }} />
           </div>
         )}
 
-        {/* Submit */}
+        {/* Submit - Form */}
         {page === "submit" && (
           <div className="max-w-2xl mx-auto">
-            <RequestForm stations={stations} personnel={personnel} onCreated={handleRequestCreated} initialAccountNumber={userAccountNumber} />
+            <RequestForm stations={stations} personnel={personnel} onCreated={handleRequestCreated} preselectedPurpose={selectedPurpose} />
           </div>
+        )}
+
+        {/* How it works */}
+        {page === "how" && (
+          <HowItWorksPage onBack={() => setPage("landing")} onSubmit={() => setPage("submit_category")} />
         )}
 
         {/* Track */}
         {page === "track" && (
-          <div className="max-w-3xl mx-auto space-y-6">
-            <div className="bg-base-100 rounded-2xl border border-base-300 shadow-sm overflow-hidden">
-              <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-base-200">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-secondary/10 rounded-lg">
-                    <Search className="h-4 w-4 sm:h-5 sm:w-5 text-secondary" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-semibold text-base-content">Track Your Request</h2>
-                    <p className="text-xs sm:text-sm text-base-content/50">Enter your account number to view your request status</p>
-                  </div>
-                </div>
-              </div>
-              <div className="p-4 sm:p-6">
-                <form onSubmit={handleTrack} className="space-y-3">
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative flex-1">
-                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-base-content/30" />
-                      <input
-                        type="text"
-                        value={trackAccountNumber}
-                        onChange={(e) => setTrackAccountNumber(e.target.value)}
-                        placeholder="Enter your account number"
-                        className="input input-bordered w-full pl-10"
-                        required
-                      />
-                    </div>
-                    <button type="submit" disabled={trackLoading} className="btn btn-primary btn-sm gap-2">
-                      {trackLoading ? <span className="loading loading-spinner loading-xs" /> : <Search className="h-4 w-4" />}
-                      Search
-                    </button>
-                  </div>
-                  <p className="text-[10px] sm:text-xs text-base-content/40 flex items-center gap-1">
-                    <Lock className="h-3 w-3" />
-                    Your account number serves as your tracking credential
-                  </p>
-                </form>
-                {trackError && (
-                  <div role="alert" aria-live="polite" className="alert alert-warning mt-4 py-2 gap-2 text-xs sm:text-sm">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>{trackError}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {trackResults === null && (
-              <div className="text-center py-8">
-                <div className="inline-flex p-3 bg-base-200 rounded-2xl mb-3">
-                  <Search className="h-8 w-8 text-base-content/20" />
-                </div>
-                <p className="text-sm text-base-content/40">Enter your account number above to search for your request.</p>
-              </div>
-            )}
-
-            {trackResults && trackResults.length > 0 && (
-              <div className="space-y-3">
-                {trackResults.map((req) => (
-                  <div key={req.id} className="bg-base-100 rounded-2xl border border-base-300 shadow-sm overflow-hidden">
-                    <div className="px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between border-b border-base-200 gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="avatar placeholder shrink-0">
-                          <div className="bg-primary/10 text-primary rounded-full w-9 h-9 sm:w-10 sm:h-10">
-                            <span className="text-xs sm:text-sm font-bold">{req.first_name[0]}{req.last_name[0]}</span>
-                          </div>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-semibold text-sm sm:text-base text-base-content truncate">
-                            {[req.first_name, req.middle_name, req.last_name, req.suffix].filter(Boolean).join(" ")}
-                          </div>
-                          <div className="text-xs sm:text-sm text-base-content/50">Account: {req.account_number || "N/A"}</div>
-                        </div>
-                      </div>
-                      <span className={`badge badge-xs sm:badge-sm ${req.status === "pending" ? "badge-warning" : "badge-success"} shrink-0`}>
-                        {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
-                      </span>
-                    </div>
-                    <div className="px-4 sm:px-6 py-3 sm:py-4 grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 text-xs sm:text-sm">
-                      <div>
-                        <div className="text-base-content/40 text-[10px] sm:text-xs mb-0.5">Purpose</div>
-                        <div className="font-medium">{req.purpose_of_request}</div>
-                      </div>
-                      <div>
-                        <div className="text-base-content/40 text-[10px] sm:text-xs mb-0.5">Rank</div>
-                        <div className="font-medium">{req.rank || "\u2014"}</div>
-                      </div>
-                      <div>
-                        <div className="text-base-content/40 text-[10px] sm:text-xs mb-0.5">From</div>
-                        <div className="font-medium truncate">{req.station_from_name}</div>
-                      </div>
-                      <div>
-                        <div className="text-base-content/40 text-[10px] sm:text-xs mb-0.5">To</div>
-                        <div className="font-medium truncate">{req.station_to_name}</div>
-                      </div>
-                    </div>
-                    <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-base-200/50 flex justify-between text-[10px] sm:text-xs text-base-content/50">
-                      <span>Submitted: {new Date(req.created_at).toLocaleDateString()}</span>
-                      <span className="truncate max-w-[150px]">{req.email}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <TrackPage
+            accountNumber={trackAccountNumber}
+            onAccountNumberChange={setTrackAccountNumber}
+            onSubmit={handleTrack}
+            loading={trackLoading}
+            error={trackError}
+            results={trackResults}
+          />
         )}
 
         {/* Admin */}
         {page === "admin" && isAdminAuth && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-base-content">Admin Dashboard</h2>
-              <button onClick={logoutAdmin} className="btn btn-ghost btn-sm gap-2 text-error">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-[fadeUp_0.4s_ease-out_both]">
+              <div className="flex items-center gap-3">
+                <div className="bg-accent/10 p-2.5 rounded-xl">
+                  <ShieldCheck className="h-5 w-5 text-accent" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight text-base-content">Admin Dashboard</h2>
+                  <p className="text-xs sm:text-sm text-base-content/50">Manage and process incoming requests</p>
+                </div>
+              </div>
+              <button onClick={logoutAdmin} className="btn btn-ghost btn-sm gap-2 text-error self-start sm:self-auto">
                 <LogOut className="h-4 w-4" />
                 Logout
               </button>
             </div>
+
             <AdminTabs requests={requests} personnel={personnel} loadRequests={loadRequests} loadPersonnel={loadPersonnel} />
           </div>
         )}
       </main>
+      )}
+
 
       {/* Footer */}
-      <footer className="border-t border-base-300 bg-base-100 mt-auto" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <footer className={`border-t border-base-300 bg-base-100 mt-auto py-4 ${page !== "landing" ? "max-sm:pb-[calc(72px+env(safe-area-inset-bottom))]" : ""}`}>
         <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-3 text-xs text-base-content/60 text-center">
           <span>&copy; {new Date().getFullYear()} Bureau of Fire Protection Region II</span>
           <span className="hidden sm:inline">|</span>
           <span>Developed by: <span className="text-base-content/70 font-medium">FO3 Rani Bryan O. Pasinos</span></span>
-          {userAccountNumber && (
-            <>
-              <span className="hidden sm:inline">|</span>
-              <button onClick={() => { setAccountInput(""); setShowAccountModal(true); }} className="inline-flex items-center gap-1 hover:text-base-content/80 transition-colors">
-                <Fingerprint className="h-3 w-3" />
-                <span className="font-mono">{userAccountNumber}</span>
-              </button>
-            </>
-          )}
         </div>
       </footer>
 
@@ -682,7 +609,7 @@ export default function App() {
       )}
 
       {/* Data Privacy Notice Modal */}
-      {!dpaAccepted && (
+      {(!dpaAccepted || showPrivacyModal) && (
         <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="privacy-title">
           <div className="modal-box max-w-lg max-h-[80vh] overflow-y-auto">
             <div className="flex items-center gap-3 mb-4">
@@ -701,7 +628,7 @@ export default function App() {
               <div>
                 <h4 className="font-semibold text-base-content mb-1">Collection of Personal Information</h4>
                 <p>
-                  The Bureau of Fire Protection Region II collects personal information through this Unified FSIS Request Form
+                  The Bureau of Fire Protection Region II collects personal information through this Unified BFP R2 eRequest Form
                   for the purpose of processing personnel transfer requests, account updates, and related administrative actions.
                 </p>
               </div>
@@ -765,9 +692,15 @@ export default function App() {
             </div>
 
             <div className="modal-action">
-              <button onClick={() => { localStorage.setItem("fsis_dpa_accepted", "true"); setDpaAccepted(true); }} className="btn btn-primary btn-sm">
-                I Understand
-              </button>
+              {dpaAccepted ? (
+                <button onClick={() => setShowPrivacyModal(false)} className="btn btn-ghost btn-sm">
+                  Close
+                </button>
+              ) : (
+                <button onClick={() => { localStorage.setItem("fsis_dpa_accepted", "true"); setDpaAccepted(true); }} className="btn btn-primary btn-sm">
+                  I Understand
+                </button>
+              )}
             </div>
           </div>
           <div className="modal-backdrop bg-black/40" />
@@ -813,7 +746,7 @@ export default function App() {
                   value={accountInput}
                   onChange={(e) => { setAccountInput(e.target.value); setAccountError(""); }}
                   className="input input-bordered w-full"
-                  placeholder="e.g. 2024-0001"
+                  placeholder="A12345"
                   autoFocus
                   required
                 />
@@ -867,7 +800,7 @@ export default function App() {
                   value={accountInput}
                   onChange={(e) => { setAccountInput(e.target.value); setAccountError(""); }}
                   className="input input-bordered w-full"
-                  placeholder="Enter new account number"
+                  placeholder="A12345"
                   autoFocus
                   required
                 />

@@ -1,30 +1,35 @@
-import { useState, useRef, useEffect, type FormEvent } from "react";
+import { useState, useRef, type FormEvent } from "react";
 import type { FireStation, Personnel } from "../types";
 import { PURPOSE_OPTIONS, DESIGNATION_OPTIONS, RANK_OPTIONS } from "../types";
 import { createRequest } from "../api";
 import { FileCheck, Hash, User, Mail, BadgeCheck, Briefcase, ArrowRight, AlertCircle, Send, ArrowUpRight, RefreshCw, PenLine, MailPlus } from "lucide-react";
 import SearchableSelect from "./SearchableSelect";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Props {
   stations: FireStation[];
   personnel: Personnel[];
-  onCreated: () => void;
-  initialAccountNumber?: string;
+  onCreated: (accountNumber?: string) => void;
+  preselectedPurpose?: string;
 }
 
 type FieldErrors = Record<string, string>;
 
 function validateField(name: string, value: string): string {
+  const requiredLabels: Record<string, string> = {
+    accountNumber: "Account number",
+    firstName: "First name",
+    middleName: "Middle name",
+    lastName: "Last name",
+    email: "Email",
+    newFirstName: "New first name",
+    newMiddleName: "New middle name",
+    newLastName: "New last name",
+    newEmail: "New email",
+  };
   if (!value || !value.trim()) {
-    const labels: Record<string, string> = {
-      accountNumber: "Account number",
-      firstName: "First name",
-      middleName: "Middle name",
-      lastName: "Last name",
-      suffix: "Suffix",
-      email: "Email",
-    };
-    return `${labels[name] || name} is required`;
+    if (!requiredLabels[name]) return "";
+    return `${requiredLabels[name]} is required`;
   }
   if (name === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
     return "Please enter a valid email address";
@@ -32,11 +37,54 @@ function validateField(name: string, value: string): string {
   return "";
 }
 
-export default function RequestForm({ stations, personnel, onCreated, initialAccountNumber = "" }: Props) {
+interface FieldProps {
+  name: string;
+  label: string;
+  icon: React.ReactNode;
+  type?: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  clearError: (name: string) => void;
+  onBlurField: (name: string, value: string) => void;
+  required?: boolean;
+}
+
+function Field({ name, label, icon, type = "text", placeholder, value, onChange, error, clearError, onBlurField, required = true }: FieldProps) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={`field-${name}`} className="text-sm font-medium text-base-content/70 flex items-center gap-1">
+        {icon}{label} {required && <span className="text-error">*</span>}
+      </label>
+      <input
+        id={`field-${name}`}
+        name={name}
+        type={type}
+        value={value}
+        onChange={(e) => { onChange(e.target.value); clearError(name); }}
+        onBlur={(e) => onBlurField(name, e.target.value)}
+        className={`input input-bordered w-full ${error ? "input-error" : ""}`}
+        placeholder={placeholder}
+        required={required}
+        aria-invalid={!!error}
+        aria-describedby={error ? `error-${name}` : undefined}
+      />
+      {error && (
+        <p id={`error-${name}`} className="text-[10px] text-error flex items-center gap-1" role="alert">
+          <AlertCircle className="h-2.5 w-2.5 shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export default function RequestForm({ stations, personnel, onCreated, preselectedPurpose }: Props) {
   const [stationFrom, setStationFrom] = useState<number>(0);
   const [stationTo, setStationTo] = useState<number>(0);
-  const [purposeOfRequest, setPurposeOfRequest] = useState("");
-  const [accountNumber, setAccountNumber] = useState(initialAccountNumber);
+  const [purposeOfRequest, setPurposeOfRequest] = useState(() => preselectedPurpose || "");
+  const [accountNumber, setAccountNumber] = useState("");
   const [rank, setRank] = useState("");
   const [firstName, setFirstName] = useState("");
   const [middleName, setMiddleName] = useState("");
@@ -47,26 +95,6 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (initialAccountNumber && personnel.length > 0) {
-      const person = personnel.find((p) => p.account_number === initialAccountNumber);
-      if (person) {
-        setFirstName(person.first_name || "");
-        setMiddleName(person.middle_name || "");
-        setLastName(person.last_name || "");
-        setSuffix(person.suffix || "");
-        setRank(person.rank || "");
-        setEmail(person.email || "");
-        setDesignation(person.designation || "");
-        const matchedStation = stations.find(
-          (s) => s.station_name.toLowerCase() === (person.station || "").toLowerCase()
-        );
-        if (matchedStation) setStationFrom(matchedStation.id);
-      }
-    }
-  }, [initialAccountNumber, personnel, stations]);
-
-  // "New" fields for update purposes
   const [newRank, setNewRank] = useState("");
   const [newFirstName, setNewFirstName] = useState("");
   const [newMiddleName, setNewMiddleName] = useState("");
@@ -76,6 +104,7 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const formRef = useRef<HTMLFormElement>(null);
+  const lastPopulatedAccount = useRef<string>("");
 
   function handleBlur(name: string, value: string) {
     const msg = validateField(name, value);
@@ -98,20 +127,54 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
     });
   }
 
+  const [showConfirm, setShowConfirm] = useState(false);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
 
+    const isUpdate = purposeOfRequest.startsWith("Update");
+    if (isUpdate && (newRank || newFirstName || newLastName || newEmail || newSuffix)) {
+      setShowConfirm(true);
+      return;
+    }
+
+    await submitRequest();
+  }
+
+  async function submitRequest() {
     // Inline validate all text fields
     const errors: FieldErrors = {};
-    const requiredFields = [
-      { name: "accountNumber", value: accountNumber },
-      { name: "firstName", value: firstName },
-      { name: "lastName", value: lastName },
-      { name: "email", value: email },
-    ];
+    const requiredFields: { name: string; value: string | number | null }[] = [];
+    
+    if (purposeOfRequest === "Transfer of Unit Assignment") {
+      requiredFields.push({ name: "firstName", value: firstName });
+      requiredFields.push({ name: "lastName", value: lastName });
+      requiredFields.push({ name: "stationFrom", value: stationFrom });
+      requiredFields.push({ name: "stationTo", value: stationTo });
+    } else if (purposeOfRequest === "New FSIS Account") {
+      requiredFields.push({ name: "firstName", value: firstName });
+      requiredFields.push({ name: "lastName", value: lastName });
+      requiredFields.push({ name: "email", value: email });
+    } else if (purposeOfRequest === "Update Rank") {
+      if (!accountNumber) {
+        errors["accountNumber"] = "Account number is required to update rank";
+      }
+      requiredFields.push({ name: "newRank", value: newRank });
+    } else if (purposeOfRequest === "Update Name") {
+      if (!accountNumber) {
+        errors["accountNumber"] = "Account number is required to update name";
+      }
+      requiredFields.push({ name: "newFirstName", value: newFirstName });
+      requiredFields.push({ name: "newLastName", value: newLastName });
+    } else if (purposeOfRequest === "Update Email") {
+      if (!accountNumber) {
+        errors["accountNumber"] = "Account number is required to update email";
+      }
+      requiredFields.push({ name: "newEmail", value: newEmail });
+    }
     for (const { name, value } of requiredFields) {
-      const msg = validateField(name, value);
+      const msg = validateField(name, String(value ?? ""));
       if (msg) errors[name] = msg;
     }
     if (Object.keys(errors).length > 0) {
@@ -171,7 +234,8 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
       setNewSuffix("");
       setNewEmail("");
       setFieldErrors({});
-      onCreated();
+      lastPopulatedAccount.current = "";
+      onCreated(accountNumber || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -179,39 +243,18 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
     }
   }
 
-  const Field = ({ name, label, icon, type = "text", placeholder, value, onChange }: {
-    name: string; label: string; icon: React.ReactNode; type?: string; placeholder: string; value: string; onChange: (v: string) => void;
-  }) => (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={`field-${name}`} className="text-sm font-medium text-base-content/70 flex items-center gap-1">
-        {icon}{label} <span className="text-error">*</span>
-      </label>
-      <input
-        id={`field-${name}`}
-        name={name}
-        type={type}
-        value={value}
-        onChange={(e) => { onChange(e.target.value); clearFieldError(name); }}
-        onBlur={(e) => handleBlur(name, e.target.value)}
-        className={`input input-bordered w-full ${fieldErrors[name] ? "input-error" : ""}`}
-        placeholder={placeholder}
-        required
-        aria-invalid={!!fieldErrors[name]}
-        aria-describedby={fieldErrors[name] ? `error-${name}` : undefined}
-      />
-      {fieldErrors[name] && (
-        <p id={`error-${name}`} className="text-[10px] text-error flex items-center gap-1" role="alert">
-          <AlertCircle className="h-2.5 w-2.5 shrink-0" />
-          {fieldErrors[name]}
-        </p>
-      )}
-    </div>
-  );
-
+  const stationNames = Array.from(
+  new Set(
+    stations.map((s) => {
+      return `${s.station_name}, ${s.province}`;
+    })
+  )
+);
   const showTransferFields = purposeOfRequest === "Transfer of Unit Assignment";
   const showUpdateRank = purposeOfRequest === "Update Rank";
   const showUpdateName = purposeOfRequest === "Update Name";
   const showUpdateEmail = purposeOfRequest === "Update Email";
+  const showIdentityFields = showTransferFields || purposeOfRequest === "New FSIS Account";
 
   const purposeConfig: Record<string, { color: string; bg: string; border: string; icon: React.ReactNode; label: string }> = {
     "Transfer of Unit Assignment": { color: "text-primary", bg: "bg-primary/10", border: "border-primary/20", icon: <ArrowUpRight className="h-3 w-3" />, label: "Transfer" },
@@ -222,15 +265,15 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
   };
 
   return (
-    <div className="card bg-base-100 shadow-lg border border-base-300">
-      <div className="card-body p-4 gap-3">
-        <div className="flex items-center gap-2">
-          <div className="bg-primary/10 p-1.5 rounded-lg">
-            <FileCheck className="h-4 w-4 text-primary" />
+    <div className="card bg-base-100 shadow-lg border border-base-300 animate-[fadeUp_0.4s_ease-out_both]">
+      <div className="card-body p-4 sm:p-6 gap-3 sm:gap-4">
+        <div className="flex items-center gap-3 pb-3 sm:pb-4 border-b border-base-200">
+          <div className="bg-primary/10 p-2.5 rounded-xl shrink-0">
+            <FileCheck className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-primary leading-tight">New Transfer Request</h2>
-            <p className="text-[10px] text-base-content/40">Fill in the details below</p>
+            <h2 className="text-base sm:text-lg font-semibold text-base-content leading-tight">New Transfer Request</h2>
+            <p className="text-xs sm:text-sm text-base-content/50">Fill in the details below to submit your request</p>
           </div>
         </div>
 
@@ -266,39 +309,68 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
                 label="Account Number"
                 value={accountNumber}
                 options={personnel.map((p) => p.account_number).filter((v): v is string => !!v)}
-                onChange={(val) => {
-                  setAccountNumber(val);
-                  clearFieldError("accountNumber");
-                  const person = personnel.find((p) => p.account_number === val);
-                  if (person) {
-                    setFirstName(person.first_name || "");
-                    setMiddleName(person.middle_name || "");
-                    setLastName(person.last_name || "");
-                    setSuffix(person.suffix || "");
-                    setRank(person.rank || "");
-                    setEmail(person.email || "");
-                    setDesignation(person.designation || "");
-                    const matchedStation = stations.find(
-                      (s) => s.station_name.toLowerCase() === (person.station || "").toLowerCase()
-                    );
-                    if (matchedStation) setStationFrom(matchedStation.id);
-                  }
-                }}
-                placeholder="Search by account number..."
+            onChange={(val) => {
+                setAccountNumber(val);
+                clearFieldError("accountNumber");
+                if (!val) {
+                  lastPopulatedAccount.current = "";
+                  setFirstName("");
+                  setMiddleName("");
+                  setLastName("");
+                  setSuffix("");
+                  setRank("");
+                  setEmail("");
+                  setDesignation("");
+                  setNewRank("");
+                  setNewFirstName("");
+                  setNewMiddleName("");
+                  setNewLastName("");
+                  setNewSuffix("");
+                  setNewEmail("");
+                  setStationFrom(0);
+                  return;
+                }
+                if (val === lastPopulatedAccount.current) return;
+                const person = personnel.find((p) => p.account_number === val);
+                if (person) {
+                  lastPopulatedAccount.current = val;
+                  setFirstName(person.first_name || "");
+                  setMiddleName(person.middle_name || "");
+                  setLastName(person.last_name || "");
+                  setSuffix(person.suffix || "");
+                  setRank(person.rank || "");
+                  setEmail(person.email || "");
+                  setDesignation(person.designation || "");
+                  setNewRank(person.rank || "");
+                  setNewFirstName(person.first_name || "");
+                  setNewMiddleName(person.middle_name || "");
+                  setNewLastName(person.last_name || "");
+                  setNewSuffix(person.suffix || "");
+                  setNewEmail(person.email || "");
+                  const matchedStation = stations.find(
+                    (s) => s.station_name.toLowerCase() === (person.station || "").toLowerCase()
+                  );
+                  if (matchedStation) setStationFrom(matchedStation.id);
+                }
+              }}
+              placeholder="A12345"
                 required
                 icon={<Hash className="h-3.5 w-3.5 text-primary/60" />}
               />
 
+              {showIdentityFields && !showTransferFields && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <Field name="middleName" label="Middle Name" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={middleName} onChange={setMiddleName} placeholder="Middle" error={fieldErrors.middleName} clearError={clearFieldError} onBlurField={handleBlur} />
+                    <Field name="suffix" label="Suffix" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={suffix} onChange={setSuffix} placeholder="Jr., Sr., III" error={fieldErrors.suffix} clearError={clearFieldError} onBlurField={handleBlur} required={false} />
+                    <Field name="email" label="Email" icon={<Mail className="h-3.5 w-3.5 text-primary/60" />} type="email" value={email} onChange={setEmail} placeholder="name@bfp.gov.ph" error={fieldErrors.email} clearError={clearFieldError} onBlurField={handleBlur} />
+                  </div>
+                </>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <SearchableSelect label="Rank" value={rank} options={RANK_OPTIONS} onChange={setRank} placeholder="Rank..." required icon={<BadgeCheck className="h-3.5 w-3.5 text-primary/60" />} />
-                <Field name="firstName" label="First Name" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={firstName} onChange={setFirstName} placeholder="First" />
-                <Field name="lastName" label="Last Name" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={lastName} onChange={setLastName} placeholder="Last" />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <Field name="middleName" label="Middle Name" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={middleName} onChange={setMiddleName} placeholder="Middle" />
-                <Field name="suffix" label="Suffix" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={suffix} onChange={setSuffix} placeholder="Jr., Sr., III" />
-                <Field name="email" label="Email" icon={<Mail className="h-3.5 w-3.5 text-primary/60" />} type="email" value={email} onChange={setEmail} placeholder="name@bfp.gov.ph" />
+                <SearchableSelect label="Rank" value={rank} options={RANK_OPTIONS} onChange={setRank} placeholder="Rank..." icon={<BadgeCheck className="h-3.5 w-3.5 text-primary/60" />} />
+                <Field name="firstName" label="First Name" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={firstName} onChange={setFirstName} placeholder="First" error={fieldErrors.firstName} clearError={clearFieldError} onBlurField={handleBlur} />
+                <Field name="lastName" label="Last Name" icon={<User className="h-3.5 w-3.5 text-primary/60" />} value={lastName} onChange={setLastName} placeholder="Last" error={fieldErrors.lastName} clearError={clearFieldError} onBlurField={handleBlur} />
               </div>
 
               {showUpdateRank && (
@@ -318,10 +390,10 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
                     <span className="text-[10px] font-semibold text-info uppercase tracking-wider">New Name</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <Field name="newFirstName" label="New First Name" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newFirstName} onChange={setNewFirstName} placeholder="New first" />
-                    <Field name="newLastName" label="New Last Name" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newLastName} onChange={setNewLastName} placeholder="New last" />
-                    <Field name="newMiddleName" label="New Middle Name" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newMiddleName} onChange={setNewMiddleName} placeholder="New middle" />
-                    <Field name="newSuffix" label="New Suffix" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newSuffix} onChange={setNewSuffix} placeholder="New suffix" />
+                    <Field name="newFirstName" label="New First Name" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newFirstName} onChange={setNewFirstName} placeholder="New first" error={fieldErrors.newFirstName} clearError={clearFieldError} onBlurField={handleBlur} />
+                    <Field name="newLastName" label="New Last Name" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newLastName} onChange={setNewLastName} placeholder="New last" error={fieldErrors.newLastName} clearError={clearFieldError} onBlurField={handleBlur} />
+                    <Field name="newMiddleName" label="New Middle Name" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newMiddleName} onChange={setNewMiddleName} placeholder="New middle" error={fieldErrors.newMiddleName} clearError={clearFieldError} onBlurField={handleBlur} />
+                    <Field name="newSuffix" label="New Suffix" icon={<ArrowRight className="h-3.5 w-3.5 text-info" />} value={newSuffix} onChange={setNewSuffix} placeholder="New suffix" error={fieldErrors.newSuffix} clearError={clearFieldError} onBlurField={handleBlur} required={false} />
                   </div>
                 </div>
               )}
@@ -332,19 +404,21 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
                     <MailPlus className="h-3 w-3 text-warning" />
                     <span className="text-[10px] font-semibold text-warning uppercase tracking-wider">New Email</span>
                   </div>
-                  <Field name="newEmail" label="New Email" icon={<ArrowRight className="h-3.5 w-3.5 text-warning" />} type="email" value={newEmail} onChange={setNewEmail} placeholder="new.email@bfp.gov.ph" />
+                  <Field name="newEmail" label="New Email" icon={<ArrowRight className="h-3.5 w-3.5 text-warning" />} type="email" value={newEmail} onChange={setNewEmail} placeholder="new.email@bfp.gov.ph" error={fieldErrors.newEmail} clearError={clearFieldError} onBlurField={handleBlur} />
                 </div>
               )}
 
-              <SearchableSelect
-                label="Designation"
-                value={designation}
-                options={DESIGNATION_OPTIONS}
-                onChange={setDesignation}
-                placeholder="Select designation..."
-                required
-                icon={<Briefcase className="h-3.5 w-3.5 text-primary/60" />}
-              />
+              {showIdentityFields && !showTransferFields && (
+                <SearchableSelect
+                  label="Designation"
+                  value={designation}
+                  options={DESIGNATION_OPTIONS}
+                  onChange={setDesignation}
+                  placeholder="Select designation..."
+                  required
+                  icon={<Briefcase className="h-3.5 w-3.5 text-primary/60" />}
+                />
+              )}
 
               {showTransferFields && (
                 <div className="pl-3 border-l-2 border-primary/40 bg-primary/5 rounded-r-lg py-2 pr-2">
@@ -355,10 +429,15 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <SearchableSelect
                       label="From Station"
-                      value={stations.find((s) => s.id === stationFrom)?.station_name || ""}
-                      options={stations.map((s) => `${s.station_name} — ${s.municipality}, ${s.province}`)}
+                      value={(() => {
+                        const s = stations.find((s) => s.id === stationFrom);
+                        if (!s) return "";
+                        return `${s.station_name}, ${s.province}`;
+                      })()}
+                      options={stationNames}
                       onChange={(val) => {
-                        const match = stations.find((s) => `${s.station_name} — ${s.municipality}, ${s.province}` === val);
+                        const stationName = val.split(",")[0].trim();
+                        const match = stations.find((s) => s.station_name === stationName);
                         setStationFrom(match?.id || 0);
                       }}
                       placeholder="Origin station..."
@@ -367,10 +446,15 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
                     />
                     <SearchableSelect
                       label="To Station"
-                      value={stations.find((s) => s.id === stationTo)?.station_name || ""}
-                      options={stations.map((s) => `${s.station_name} — ${s.municipality}, ${s.province}`)}
+                      value={(() => {
+                        const s = stations.find((s) => s.id === stationTo);
+                        if (!s) return "";
+                        return `${s.station_name}, ${s.province}`;
+                      })()}
+                      options={stationNames}
                       onChange={(val) => {
-                        const match = stations.find((s) => `${s.station_name} — ${s.municipality}, ${s.province}` === val);
+                        const stationName = val.split(",")[0].trim();
+                        const match = stations.find((s) => s.station_name === stationName);
                         setStationTo(match?.id || 0);
                       }}
                       placeholder="Destination station..."
@@ -381,10 +465,10 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
                 </div>
               )}
 
-              <button type="submit" disabled={loading} className="btn btn-primary btn-sm btn-block gap-2 mt-1">
+              <button type="submit" disabled={loading} className="btn btn-primary btn-block gap-2 mt-2 shadow-lg shadow-primary/20 hover:-translate-y-0.5 transition-transform duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
                 {loading ? (
                   <>
-                    <span className="loading loading-spinner loading-xs"></span>
+                    <span className="loading loading-spinner loading-sm"></span>
                     Submitting...
                   </>
                 ) : (
@@ -394,6 +478,15 @@ export default function RequestForm({ stations, personnel, onCreated, initialAcc
                   </>
                 )}
               </button>
+
+              {showConfirm && (
+                <ConfirmDialog
+                  title="Confirm Request"
+                  message={`Submit this ${purposeOfRequest} request?`}
+                  onConfirm={() => submitRequest()}
+                  onCancel={() => setShowConfirm(false)}
+                />
+              )}
             </>
           )}
         </form>

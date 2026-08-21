@@ -1,6 +1,6 @@
 export interface AppNotification {
   id: string;
-  type: "new_request" | "approved" | "denied";
+  type: "new_request" | "approved" | "denied" | "deleted" | "update";
   title: string;
   message: string;
   timestamp: number;
@@ -34,6 +34,14 @@ export function createNotification(
   purpose?: string
 ): AppNotification {
   const name = `${firstName} ${lastName}`;
+  const purposeMessages: Record<string, string> = {
+    "Transfer of Unit Assignment": `Transfer approved for ${name}.`,
+    "New FSIS Account": `New e Request account approved for ${name}. Password reset email sent.`,
+    "Update Rank": `${name}'s rank update approved.`,
+    "Update Name": `${name}'s name update approved.`,
+    "Update Email": `${name}'s email update approved.`,
+  };
+  
   switch (type) {
     case "new_request":
       return {
@@ -49,7 +57,7 @@ export function createNotification(
         id: `ap-${Date.now()}`,
         type,
         title: "Request Approved",
-        message: `Your request has been approved.`,
+        message: purpose ? (purposeMessages[purpose] || `Your ${purpose.toLowerCase()} request has been approved.`) : `Your request has been approved.`,
         timestamp: Date.now(),
         read: false,
       };
@@ -59,6 +67,24 @@ export function createNotification(
         type,
         title: "Request Denied",
         message: `Your request has been denied.`,
+        timestamp: Date.now(),
+        read: false,
+      };
+    case "deleted":
+      return {
+        id: `dl-${Date.now()}`,
+        type,
+        title: "Request Deleted",
+        message: `A request has been deleted.`,
+        timestamp: Date.now(),
+        read: false,
+      };
+    case "update":
+      return {
+        id: `up-${Date.now()}`,
+        type,
+        title: "Request Updated",
+        message: `Your ${purpose ? purpose.toLowerCase() : "request"} has been updated.`,
         timestamp: Date.now(),
         read: false,
       };

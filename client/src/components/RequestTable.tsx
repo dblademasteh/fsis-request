@@ -1,7 +1,10 @@
 import { useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import type { TransferRequest, RequestStatus } from "../types";
 import { updateRequestStatus, deleteRequest } from "../api";
-import { FileText, Clock, CheckCircle2, Inbox, User, Mail, ArrowRight, Calendar, Search, Trash2, XCircle, AlertCircle } from "lucide-react";
+import { showDeviceNotification } from "../notifications";
+import { FileText, CheckCircle2, Inbox, Mail, ArrowRight, Calendar, Search, Trash2, AlertCircle, X, ExternalLink } from "lucide-react";
+import { ConfirmModal } from "./ConfirmModal";
 
 interface Props {
   requests: TransferRequest[];
@@ -21,6 +24,7 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
   const [filter, setFilter] = useState<FilterStatus>("all");
   const [search, setSearch] = useState("");
   const [actionError, setActionError] = useState("");
+  const [showCmsModal, setShowCmsModal] = useState(false);
 
   const filtered = useMemo(() => {
     let result = filter === "all" ? requests : requests.filter((r) => r.status === filter);
@@ -39,22 +43,51 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
     return result;
   }, [requests, filter, search]);
 
-  async function handleStatusChange(id: number, status: string) {
+  const [confirmState, setConfirmState] = useState<{ show: boolean; type: "approve" | "delete"; id: number }>({ show: false, type: "approve", id: 0 });
+  const [actionToast, setActionToast] = useState<{ msg: string; show: boolean }>({ msg: "", show: false });
+
+  const confirm = (type: "approve" | "delete", id: number) => setConfirmState({ show: true, type, id });
+  const cancelConfirm = () => setConfirmState({ show: false, type: "approve", id: 0 });
+
+  async function handleApprove(id: number) {
+    const request = requests.find(r => r.id === id);
     setActionError("");
     try {
-      await updateRequestStatus(id, status);
+      await updateRequestStatus(id, "approved");
       onUpdated();
+      if (request) {
+        const purposeMessages: Record<string, string> = {
+          "Transfer of Unit Assignment": `Transfer approved for ${request.first_name}. ${request.station_from_name} → ${request.station_to_name}`,
+          "New FSIS Account": `New e Request account approved for ${request.first_name} ${request.last_name}. Password reset email sent.`,
+          "Update Rank": `${request.first_name} ${request.last_name} rank updated to ${request.new_rank || request.rank}`,
+          "Update Name": `Name updated for ${request.first_name} → ${request.new_first_name} ${request.new_last_name}`,
+          "Update Email": `Email updated to ${request.new_email}`
+        };
+        const msg = purposeMessages[request.purpose_of_request] || `Request approved for ${request.first_name}`;
+        setActionToast({ msg, show: true });
+        setTimeout(() => setActionToast({ msg: "", show: false }), 3000);
+        
+        // Send notification to requestor
+        if (request.account_number) {
+          showDeviceNotification("Request Approved", msg);
+        }
+      }
     } catch (err) {
-      setActionError(`Failed to ${status} request. Please try again.`);
+      setActionError("Failed to approve request. Please try again.");
       setTimeout(() => setActionError(""), 3000);
     }
   }
 
+  function handleProcess() {
+    window.open("https://cms.e-bfp.com", "_blank", "noopener,noreferrer");
+  }
+
   async function handleDelete(id: number) {
-    if (!confirm("Are you sure you want to delete this request?")) return;
     setActionError("");
     try {
       await deleteRequest(id);
+      setActionToast({ msg: "Request deleted successfully", show: true });
+      setTimeout(() => setActionToast({ msg: "", show: false }), 3000);
       onUpdated();
     } catch (err) {
       setActionError("Failed to delete request. Please try again.");
@@ -66,13 +99,13 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
     return [r.first_name, r.middle_name, r.last_name, r.suffix].filter(Boolean).join(" ");
   }
 
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
-  const approvedCount = requests.filter((r) => r.status === "approved").length;
-  const deniedCount = requests.filter((r) => r.status === "denied").length;
+  function displayName(r: TransferRequest) {
+    return [r.rank, r.first_name, r.last_name, r.suffix].filter(Boolean).join(" ");
+  }
 
   if (requests.length === 0) {
     return (
-      <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+      <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden animate-[fadeUp_0.35s_ease-out_both]">
         <div className="flex flex-col items-center justify-center py-20 gap-4">
           <div className="bg-base-200 p-5 rounded-2xl">
             <Inbox className="h-12 w-12 text-base-content/20" />
@@ -87,7 +120,7 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
   }
 
   return (
-    <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden">
+    <div className="bg-base-100 rounded-2xl border border-base-300 overflow-hidden animate-[fadeUp_0.35s_ease-out_both]">
       {/* Header */}
       <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-base-200">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -100,25 +133,6 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
               <p className="text-xs sm:text-sm text-base-content/50">{filtered.length} of {requests.length} request{requests.length !== 1 ? "s" : ""}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="flex items-center gap-1.5 sm:gap-2 bg-warning/10 border border-warning/20 rounded-lg px-2.5 sm:px-3 py-1.5">
-              <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-warning" />
-              <span className="text-xs sm:text-sm font-semibold">{pendingCount}</span>
-              <span className="text-[10px] sm:text-xs text-base-content/50">pending</span>
-            </div>
-            <div className="flex items-center gap-1.5 sm:gap-2 bg-success/10 border border-success/20 rounded-lg px-2.5 sm:px-3 py-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-success" />
-              <span className="text-xs sm:text-sm font-semibold">{approvedCount}</span>
-              <span className="text-[10px] sm:text-xs text-base-content/50">approved</span>
-            </div>
-            {deniedCount > 0 && (
-              <div className="flex items-center gap-1.5 sm:gap-2 bg-error/10 border border-error/20 rounded-lg px-2.5 sm:px-3 py-1.5">
-                <XCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-error" />
-                <span className="text-xs sm:text-sm font-semibold">{deniedCount}</span>
-                <span className="text-[10px] sm:text-xs text-base-content/50">denied</span>
-              </div>
-            )}
-          </div>
         </div>
 
         {actionError && (
@@ -127,6 +141,14 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
             <span>{actionError}</span>
           </div>
         )}
+
+        {actionToast.show && createPortal(
+        <div role="alert" aria-live="polite" className="fixed top-4 right-4 z-50 alert alert-success py-2 px-4 text-sm gap-3 shadow-lg animate-[slideIn_0.2s_ease-out]">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>{actionToast.msg}</span>
+        </div>,
+        document.body
+      )}
 
         {/* Search + Filter */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
@@ -141,7 +163,7 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
             />
           </div>
           <div className="flex rounded-lg border border-base-300 overflow-hidden self-start sm:self-auto">
-            {(["all", "pending", "approved", "denied"] as FilterStatus[]).map((f) => (
+            {(["all", "pending", "approved"] as FilterStatus[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -178,17 +200,13 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-0.5 sm:mb-1 flex-wrap">
-                        <h3 className="font-semibold text-sm sm:text-base text-base-content truncate">{fullName(req)}</h3>
+                        <h3 className="font-semibold text-sm sm:text-base text-base-content truncate">{displayName(req)}</h3>
                         <span className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium border ${style.badge}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
                           {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-0.5 text-xs sm:text-sm text-base-content/50">
-                        <span className="flex items-center gap-1">
-                          <User className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                          {req.rank || "\u2014"}
-                        </span>
                         <span className="flex items-center gap-1">
                           <Mail className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                           <span className="truncate max-w-[120px] sm:max-w-none">{req.email}</span>
@@ -204,26 +222,26 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
                   {/* Right: Actions */}
                   {isAdmin && (
                     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                      {req.status === "pending" && (
+{req.status === "pending" && (
                         <>
                           <button
-                            onClick={() => handleStatusChange(req.id, "approved")}
+                            onClick={() => confirm("approve", req.id)}
                             className="btn btn-success btn-xs sm:btn-sm gap-1 sm:gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-success focus-visible:ring-offset-1"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                             <span className="hidden sm:inline">Approve</span>
                           </button>
                           <button
-                            onClick={() => handleStatusChange(req.id, "denied")}
-                            className="btn btn-error btn-xs sm:btn-sm gap-1 sm:gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1"
+                            onClick={handleProcess}
+                            className="btn btn-info btn-xs sm:btn-sm gap-1 sm:gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-1"
                           >
-                            <XCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            <span className="hidden sm:inline">Deny</span>
+                            <ExternalLink className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            <span className="hidden sm:inline">Process</span>
                           </button>
                         </>
                       )}
                       <button
-                        onClick={() => handleDelete(req.id)}
+                        onClick={() => confirm("delete", req.id)}
                         className="btn btn-ghost btn-xs sm:btn-sm text-error/70 hover:text-error hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1"
                         aria-label="Delete request"
                       >
@@ -257,6 +275,43 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
           })}
         </div>
       )}
+
+      {/* CMS Modal — portaled to body so ancestor transforms/overflow don't constrain it */}
+      {showCmsModal && createPortal(
+        <div className="modal modal-open" role="dialog" aria-modal="true" aria-label="BFP CMS">
+          <div className="modal-box max-w-4xl h-[85vh] p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-base-200">
+              <span className="text-sm font-semibold text-base-content">BFP CMS</span>
+              <button
+                onClick={() => setShowCmsModal(false)}
+                className="btn btn-ghost btn-xs btn-circle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label="Close CMS"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <iframe
+              src="https://cms.e-bfp.com"
+              title="BFP CMS"
+              className="w-full h-[calc(85vh-45px)] border-0"
+            />
+          </div>
+          <div className="modal-backdrop bg-black/40" onClick={() => setShowCmsModal(false)} />
+        </div>,
+        document.body
+      )}
+
+      <ConfirmModal
+        show={confirmState.show}
+        title={confirmState.type === "delete" ? "Delete Request" : "Approve Request"}
+        message={`Are you sure you want to ${confirmState.type === "delete" ? "delete this request for " + requests.find(r => r.id === confirmState.id)?.first_name + " " + requests.find(r => r.id === confirmState.id)?.last_name : "approve this request for " + requests.find(r => r.id === confirmState.id)?.purpose_of_request?.toLowerCase()}?`}
+        onConfirm={() => {
+          if (confirmState.type === "approve") handleApprove(confirmState.id);
+          else handleDelete(confirmState.id);
+          cancelConfirm();
+        }}
+        onCancel={cancelConfirm}
+      />
     </div>
   );
 }

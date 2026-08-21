@@ -42,6 +42,12 @@ async function seed() {
       count++;
     }
 
+    await client.query(
+      `INSERT INTO personnel (first_name, middle_name, last_name, suffix, rank, designation, account_number, email, station)
+       VALUES ('DEMO', NULL, 'USER', NULL, 'FO1', 'Demo Officer', 'TEST001', 'demo@test.com', 'Demo Station')
+       ON CONFLICT DO NOTHING`
+    );
+
     await client.query("COMMIT");
     console.log(`Seeded ${count} personnel records.`);
   } catch (err) {
