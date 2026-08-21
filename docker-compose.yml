@@ -29,6 +29,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-fsis_password}
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-me}
       BASE_URL: ${BASE_URL:-http://localhost:3001}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
     depends_on:
       - postgres
     networks:
