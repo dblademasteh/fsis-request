@@ -55,9 +55,9 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: fsis-cloudflared
-    command: tunnel --hostname ${CF_TUNNEL_HOSTNAME:-devbry.online} --url http://client:80
+    command: tunnel run
     environment:
-      CF_TUNNEL_HOSTNAME: ${CF_TUNNEL_HOSTNAME:-devbry.online}
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
     networks:
       - fsis-network
     restart: unless-stopped
