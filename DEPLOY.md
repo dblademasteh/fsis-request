@@ -15,7 +15,7 @@ DB_PASSWORD=your_secure_password_here
 DB_NAME=fsis
 JWT_SECRET=your_very_long_secret_key_at_least_32_characters
 BASE_URL=http://localhost:3001
-CLIENT_PORT=80
+CLIENT_PORT=8080
 SERVER_PORT=3001
 ```
 
@@ -44,7 +44,7 @@ chmod +x deploy.sh
 ### 4. Configure Cloudflare Tunnel
 ```bash
 # On NAS - in your project directory
-cloudflared tunnel --hostname devbry.online --url http://localhost:80
+cloudflared tunnel --hostname devbry.online --url http://localhost:8080
 ```
 
 Or add to your existing tunnel config:
@@ -77,7 +77,7 @@ docker-compose exec server ts-node src/db/seed-personnel.ts
 - **Password:** (from .env ADMIN_PASSWORD or 'changeme' if not set)
 
 ## Services
-- **Client (Web):** http://localhost:80 (via Cloudflare: https://devbry.online)
+- **Client (Web):** http://localhost:8080 (via Cloudflare: https://devbry.online)
 - **Server (API):** http://localhost:3001
 
 ## Stopping Services

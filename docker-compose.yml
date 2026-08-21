@@ -43,14 +43,26 @@ services:
       dockerfile: Dockerfile.client
     container_name: fsis-client
     ports:
-      - "${CLIENT_PORT:-80}:80"
+      - "${CLIENT_PORT:-8080}:80"
     environment:
-      - BASE_URL=${BASE_URL}
+      - BASE_URL=${BASE_URL:-http://localhost:3001}
     networks:
       - fsis-network
     restart: unless-stopped
     depends_on:
       - server
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: fsis-cloudflared
+    command: tunnel --hostname ${CF_TUNNEL_HOSTNAME:-devbry.online} --url http://client:80
+    environment:
+      CF_TUNNEL_HOSTNAME: ${CF_TUNNEL_HOSTNAME:-devbry.online}
+    networks:
+      - fsis-network
+    restart: unless-stopped
+    depends_on:
+      - client
 
 volumes:
   postgres_data:
