@@ -1,4 +1,5 @@
 import pool from "./pool";
+import bcrypt from "bcrypt";
 
 async function migrate() {
   const client = await pool.connect();
@@ -57,10 +58,6 @@ async function migrate() {
         role VARCHAR(50) NOT NULL DEFAULT 'admin',
         created_at TIMESTAMP DEFAULT NOW()
       );
-
-      INSERT INTO users (username, password, role)
-      VALUES ('admin', '$2b$10$placeholder', 'admin')
-      ON CONFLICT (username) DO NOTHING;
 
       INSERT INTO fire_stations (station_name, municipality, province) VALUES
         ('Tuguegarao City Fire Station', 'Tuguegarao City', 'Cagayan'),
@@ -168,6 +165,16 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_requests_to ON transfer_requests(station_to_id);
       CREATE INDEX IF NOT EXISTS idx_personnel_account ON personnel(account_number);
     `);
+
+    // Create/update the admin account (password comes from ADMIN_PASSWORD in .env)
+    const adminPassword = process.env.ADMIN_PASSWORD || "changeme";
+    const adminHash = await bcrypt.hash(adminPassword, 10);
+    await client.query(
+      `INSERT INTO users (username, password, role)
+       VALUES ('admin', $1, 'admin')
+       ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password`,
+      [adminHash]
+    );
 
     console.log("Migration completed successfully.");
   } catch (err) {

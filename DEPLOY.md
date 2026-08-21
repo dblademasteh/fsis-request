@@ -74,7 +74,13 @@ docker-compose exec server ts-node src/db/seed-personnel.ts   # ensure personnel
 
 ## Admin Login
 - **Username:** admin
-- **Password:** (from .env ADMIN_PASSWORD or 'changeme' if not set)
+- **Password:** from `.env` `ADMIN_PASSWORD` (falls back to `changeme` if not set — change it in production!)
+
+Add this to your `.env` on the server:
+```env
+ADMIN_PASSWORD=your_secure_admin_password
+```
+The password is applied every time the server starts (migration step), so changing `ADMIN_PASSWORD` + restarting the stack updates the login.
 
 ## Services
 - **Client (Web):** http://localhost:8080 (via Cloudflare: https://devbry.online)
