@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { AppNotification } from "../notifications";
-import { Bell, CheckCircle2, XCircle, Plus, Clock } from "lucide-react";
+import { Bell, CheckCircle2, XCircle, Plus, Clock, Trash2, Edit } from "lucide-react";
 
 interface Props {
   notifications: AppNotification[];
@@ -20,6 +20,8 @@ const TYPE_ICON: Record<AppNotification["type"], { icon: React.ReactNode; color:
   new_request: { icon: <Plus className="h-3.5 w-3.5" />, color: "text-primary", bg: "bg-primary/10" },
   approved: { icon: <CheckCircle2 className="h-3.5 w-3.5" />, color: "text-success", bg: "bg-success/10" },
   denied: { icon: <XCircle className="h-3.5 w-3.5" />, color: "text-error", bg: "bg-error/10" },
+  deleted: { icon: <Trash2 className="h-3.5 w-3.5" />, color: "text-warning", bg: "bg-warning/10" },
+  update: { icon: <Edit className="h-3.5 w-3.5" />, color: "text-info", bg: "bg-info/10" },
 };
 
 export default function NotificationPanel({ notifications, onMarkAllRead, onClear }: Props) {
@@ -28,7 +30,7 @@ export default function NotificationPanel({ notifications, onMarkAllRead, onClea
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        (panelRef.current as any)?.closest("[data-notif-wrapper]")?.querySelector("[data-notif-trigger]")?.click();
+        (panelRef.current as any)?.closest("[data-notif-wrapper]")?.querySelector("[data-notif-trigger] button")?.click();
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
