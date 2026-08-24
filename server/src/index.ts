@@ -155,6 +155,10 @@ app.post("/api/requests", async (req, res) => {
     return res.status(400).json({ error: "Account number is required for this request type" });
   }
 
+  if (purpose_of_request === "New FSIS Account" && !station_from_id) {
+    return res.status(400).json({ error: "Fire station is required for new account requests" });
+  }
+
   if (isTransfer) {
     if (!station_from_id || !station_to_id) {
       return res.status(400).json({ error: "Both stations are required for transfer requests" });

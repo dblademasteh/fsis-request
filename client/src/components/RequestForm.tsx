@@ -153,6 +153,9 @@ export default function RequestForm({ stations, personnel, onCreated, preselecte
       requiredFields.push({ name: "stationFrom", value: stationFrom });
       requiredFields.push({ name: "stationTo", value: stationTo });
     } else if (purposeOfRequest === "New FSIS Account") {
+      if (!stationFrom) {
+        errors["stationFrom"] = "Fire station is required";
+      }
       requiredFields.push({ name: "firstName", value: firstName });
       requiredFields.push({ name: "lastName", value: lastName });
       requiredFields.push({ name: "email", value: email });
@@ -203,8 +206,10 @@ export default function RequestForm({ stations, personnel, onCreated, preselecte
         email,
         designation,
       };
-      if (showTransferFields && stationFrom && stationTo) {
+      if (stationFrom && (showTransferFields || purposeOfRequest === "New FSIS Account")) {
         payload.station_from_id = stationFrom;
+      }
+      if (showTransferFields && stationTo) {
         payload.station_to_id = stationTo;
       }
       if (showUpdateRank && newRank) payload.new_rank = newRank;
@@ -409,15 +414,35 @@ export default function RequestForm({ stations, personnel, onCreated, preselecte
               )}
 
               {showIdentityFields && !showTransferFields && (
-                <SearchableSelect
-                  label="Designation"
-                  value={designation}
-                  options={DESIGNATION_OPTIONS}
-                  onChange={setDesignation}
-                  placeholder="Select designation..."
-                  required
-                  icon={<Briefcase className="h-3.5 w-3.5 text-primary/60" />}
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <SearchableSelect
+                    label="Designation"
+                    value={designation}
+                    options={DESIGNATION_OPTIONS}
+                    onChange={setDesignation}
+                    placeholder="Select designation..."
+                    required
+                    icon={<Briefcase className="h-3.5 w-3.5 text-primary/60" />}
+                  />
+                  <SearchableSelect
+                    label="Fire Station"
+                    value={(() => {
+                      const s = stations.find((s) => s.id === stationFrom);
+                      if (!s) return "";
+                      return `${s.station_name}, ${s.province}`;
+                    })()}
+                    options={stationNames}
+                    onChange={(val) => {
+                      const stationName = val.split(",")[0].trim();
+                      const match = stations.find((s) => s.station_name === stationName);
+                      setStationFrom(match?.id || 0);
+                      clearFieldError("stationFrom");
+                    }}
+                    placeholder="Select fire station..."
+                    required
+                    icon={<Briefcase className="h-3.5 w-3.5 text-primary/60" />}
+                  />
+                </div>
               )}
 
               {showTransferFields && (

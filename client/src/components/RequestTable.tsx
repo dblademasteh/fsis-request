@@ -25,6 +25,8 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
   const [search, setSearch] = useState("");
   const [actionError, setActionError] = useState("");
   const [showCmsModal, setShowCmsModal] = useState(false);
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const detailRequest = requests.find((r) => r.id === detailId) || null;
 
   const filtered = useMemo(() => {
     let result = filter === "all" ? requests : requests.filter((r) => r.status === filter);
@@ -101,6 +103,49 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
 
   function displayName(r: TransferRequest) {
     return [r.rank, r.first_name, r.last_name, r.suffix].filter(Boolean).join(" ");
+  }
+
+  function detailChanges(r: TransferRequest): { label: string; from?: string | null; to?: string | null }[] {
+    if (r.purpose_of_request === "Transfer of Unit Assignment") {
+      return [{ label: "Station", from: r.station_from_name, to: r.station_to_name }];
+    }
+    if (r.purpose_of_request === "Update Rank") {
+      return [{ label: "Rank", from: r.rank, to: r.new_rank }];
+    }
+    if (r.purpose_of_request === "Update Name") {
+      return [
+        { label: "First name", from: r.first_name, to: r.new_first_name },
+        { label: "Middle name", from: r.middle_name, to: r.new_middle_name },
+        { label: "Last name", from: r.last_name, to: r.new_last_name },
+        { label: "Suffix", from: r.suffix, to: r.new_suffix },
+      ];
+    }
+    if (r.purpose_of_request === "Update Email") {
+      return [{ label: "Email", from: r.email, to: r.new_email }];
+    }
+    return [];
+  }
+
+  function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
+    return (
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <span className="text-[10px] uppercase tracking-wider text-base-content/40 font-semibold">{label}</span>
+        <span className="text-sm text-base-content break-words">{value || "\u2014"}</span>
+      </div>
+    );
+  }
+
+  function ChangeRow({ label, from, to }: { label: string; from?: string | null; to?: string | null }) {
+    return (
+      <div className="flex items-start gap-2 sm:gap-3 text-sm">
+        <span className="text-xs text-base-content/50 w-20 sm:w-24 shrink-0 pt-1">{label}</span>
+        <span className="flex items-center gap-1.5 min-w-0 flex-wrap">
+          <span className="bg-base-100 border border-base-300 rounded-md px-2 py-0.5 text-base-content/60 break-all">{from || "\u2014"}</span>
+          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-base-content/40" />
+          <span className="bg-primary/10 text-primary rounded-md px-2 py-0.5 font-medium break-all">{to || "\u2014"}</span>
+        </span>
+      </div>
+    );
   }
 
   if (requests.length === 0) {
@@ -191,7 +236,15 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
           {filtered.map((req) => {
             const style = STATUS_STYLE[req.status];
             return (
-              <div key={req.id} className="px-4 sm:px-6 py-3 sm:py-4 hover:bg-base-200/50 transition-colors duration-150">
+              <div
+                key={req.id}
+                onClick={() => setDetailId(req.id)}
+                onKeyDown={(e) => { if (e.key === "Enter") setDetailId(req.id); }}
+                tabIndex={0}
+                role="button"
+                aria-label={`View details for request #${req.id}`}
+                className="px-4 sm:px-6 py-3 sm:py-4 hover:bg-base-200/50 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+              >
                 <div className="flex items-start justify-between gap-3">
                   {/* Left: Avatar + Info */}
                   <div className="flex items-start gap-3 min-w-0">
@@ -221,7 +274,7 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
 
                   {/* Right: Actions */}
                   {isAdmin && (
-                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
 {req.status === "pending" && (
                         <>
                           <button
@@ -262,6 +315,13 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
                   <span className="inline-flex items-center gap-1 sm:gap-1.5 bg-secondary/10 text-secondary rounded-lg px-2 sm:px-3 py-0.5 sm:py-1 text-[10px] sm:text-xs font-medium">
                     {req.purpose_of_request}
                   </span>
+                  {req.purpose_of_request === "Update Rank" && req.new_rank && (
+                    <span className="inline-flex items-center gap-1 text-accent font-medium">
+                      <span className="truncate max-w-[80px] sm:max-w-[120px]">{req.rank || "\u2014"}</span>
+                      <ArrowRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+                      <span className="truncate max-w-[80px] sm:max-w-[120px]">{req.new_rank}</span>
+                    </span>
+                  )}
                   {(req.station_from_name || req.station_to_name) && (
                     <span className="inline-flex items-center gap-1 text-base-content/40">
                       <span className="truncate max-w-[80px] sm:max-w-[120px]">{req.station_from_name}</span>
@@ -297,6 +357,73 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
             />
           </div>
           <div className="modal-backdrop bg-black/40" onClick={() => setShowCmsModal(false)} />
+        </div>,
+        document.body
+      )}
+
+      {/* Request Detail Modal */}
+      {detailRequest && createPortal(
+        <div className="modal modal-open" role="dialog" aria-modal="true" aria-label={`Request details for #${detailRequest.id}`}>
+          <div className="modal-box max-w-xl p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-base-200">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="bg-primary/10 text-primary rounded-xl w-9 h-9 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-bold">{detailRequest.first_name[0]}{detailRequest.last_name[0]}</span>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-sm text-base-content truncate">{displayName(detailRequest)}</h3>
+                  <p className="text-[10px] text-base-content/50 font-mono">{detailRequest.account_number || "\u2014"}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDetailId(null)}
+                className="btn btn-ghost btn-xs btn-circle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label="Close details"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 space-y-4 max-h-[65vh] overflow-y-auto">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLE[detailRequest.status].badge}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[detailRequest.status].dot}`} />
+                  {detailRequest.status.charAt(0).toUpperCase() + detailRequest.status.slice(1)}
+                </span>
+                <span className="inline-flex items-center bg-secondary/10 text-secondary rounded-lg px-2.5 py-0.5 text-xs font-medium">
+                  {detailRequest.purpose_of_request}
+                </span>
+                <span className="inline-flex items-center gap-1 bg-base-200 rounded-lg px-2.5 py-0.5 text-[10px] sm:text-xs text-base-content/50">
+                  <Calendar className="h-3 w-3" />
+                  {new Date(detailRequest.created_at).toLocaleDateString()}
+                </span>
+              </div>
+
+              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
+                <DetailRow label="Email" value={detailRequest.email} />
+                <DetailRow label="Rank" value={detailRequest.rank} />
+                <DetailRow label="Designation" value={detailRequest.designation} />
+                {detailRequest.purpose_of_request === "New FSIS Account" && (
+                  <DetailRow label="Fire Station" value={detailRequest.station_from_name} />
+                )}
+              </dl>
+
+              {detailChanges(detailRequest).length > 0 && (
+                <div className="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-base-content/40">Requested Changes</p>
+                  {detailChanges(detailRequest).map((c) => (
+                    <ChangeRow key={c.label} {...c} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 py-2.5 border-t border-base-200 flex flex-wrap justify-between gap-x-4 text-[10px] text-base-content/40">
+              <span>Created {new Date(detailRequest.created_at).toLocaleString()}</span>
+              <span>Updated {new Date(detailRequest.updated_at).toLocaleString()}</span>
+            </div>
+          </div>
+          <div className="modal-backdrop bg-black/40" onClick={() => setDetailId(null)} />
         </div>,
         document.body
       )}
