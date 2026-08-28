@@ -64,11 +64,7 @@ services:
     command: ["tunnel", "--no-autoupdate", "run", "--token", "${CF_TUNNEL_TOKEN}"]
     environment:
       TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:-}
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
-    networks:
-      - fsis-network
+    network_mode: host
     restart: unless-stopped
     depends_on:
       - client
