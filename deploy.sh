@@ -5,7 +5,6 @@
 # Usage:
 #   ./deploy.sh            # pull + rebuild + restart
 #   ./deploy.sh --no-pull  # skip git pull (just rebuild/restart)
-#   ./deploy.sh --tunnel   # also start the Cloudflare tunnel service
 
 set -e
 
@@ -28,22 +27,14 @@ else
   echo "Skipping git pull (--no-pull)."
 fi
 
-# --- 3. Build and start core services --------------------------------------
+# --- 3. Build and start all services ---------------------------------------
 echo "Building Docker images..."
 docker compose build
 
-echo "Starting services (postgres, server, client)..."
+echo "Starting services (postgres, server, client, cloudflared)..."
 docker compose up -d
 
-# --- 4. Optional: Cloudflare tunnel ----------------------------------------
-if [ "$1" = "--tunnel" ] || [ "$2" = "--tunnel" ]; then
-  echo "Starting Cloudflare tunnel..."
-  docker compose --profile tunnel up -d cloudflared
-else
-  echo "Cloudflare tunnel not started (pass --tunnel to enable)."
-fi
-
-# --- 5. Verify --------------------------------------------------------------
+# --- 4. Verify --------------------------------------------------------------
 echo ""
 echo "Waiting for services to become healthy..."
 sleep 8

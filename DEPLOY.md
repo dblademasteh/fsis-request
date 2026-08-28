@@ -16,7 +16,7 @@ git pull origin main
 docker compose up -d --build        # rebuilds only what changed
 ```
 
-> 💡 A helper script `deploy.sh` wraps the NAS steps: `./deploy.sh` (pull + rebuild + restart), `./deploy.sh --no-pull` (rebuild only), `./deploy.sh --tunnel` (also start Cloudflare tunnel).
+> 💡 A helper script `deploy.sh` wraps the NAS steps: `./deploy.sh` (pull + rebuild + restart), `./deploy.sh --no-pull` (rebuild only).
 
 ## 1. `.env` (on the NAS)
 
@@ -101,11 +101,11 @@ Then on the NAS:
 
 ```bash
 grep -q CF_TUNNEL_TOKEN .env || echo "CF_TUNNEL_TOKEN=<paste-token>" >> .env
-docker compose --profile tunnel up -d cloudflared
+docker compose up -d --force-recreate cloudflared
 docker compose logs cloudflared --tail 20    # expect "Registered tunnel connection"
 ```
 
-The `cloudflared` service is behind a **profile** (`tunnel`), so it is **not** started by a plain `docker compose up -d`. Until you configure a token, simply don't start it — it won't crash-loop. To enable it: `docker compose --profile tunnel up -d cloudflared`.
+The `cloudflared` service is part of the default stack, so a plain `docker compose up -d` starts it too. It **self-disables** when no token is set: if `CF_TUNNEL_TOKEN` is empty, the container prints `CF_TUNNEL_TOKEN not set — cloudflared disabled.` and exits cleanly (no crash-loop). To enable public access, add the token to `.env` and recreate the container as above.
 
 ## 6. Services
 
@@ -123,7 +123,7 @@ docker compose down            # stop + remove containers (keeps data volume)
 docker compose down -v         # ⚠️ also deletes the database volume
 docker compose logs -f         # follow all logs
 docker compose logs server     # API only
-docker compose --profile tunnel up -d cloudflared   # start tunnel (opt-in)
+docker compose up -d --force-recreate cloudflared   # (re)start tunnel after adding token
 docker compose stop cloudflared                     # stop tunnel
 ```
 
@@ -143,7 +143,7 @@ The client registers a service worker (`client/public/sw.js`, cache name `fsis-v
 | Old logo/assets after deploy | Service worker cache | Bump `CACHE_NAME` in `sw.js`; clients clear automatically on next load |
 | NAS files diverge from GitHub (merge errors on pull) | Direct edits were made on the NAS | `git reset --hard origin/main` (discards NAS-local edits; `.env` is untracked and safe) |
 | Nginx: `host not found in upstream` | Config references `host.docker.internal`, which doesn't exist in this Docker network | Use compose service names — `proxy_pass http://server:3001;` |
-| `cloudflared` not running after `up -d` | It's behind the `tunnel` profile (opt-in) | Start explicitly: `docker compose --profile tunnel up -d cloudflared` |
+| `cloudflared` exits with "token not set" | `CF_TUNNEL_TOKEN` is empty in `.env` | Add the token and recreate: `docker compose up -d --force-recreate cloudflared` |
 
 ## 9. Release checklist
 
@@ -153,4 +153,4 @@ The client registers a service worker (`client/public/sw.js`, cache name `fsis-v
 - [ ] Committed & pushed from the PC
 - [ ] On NAS: `git pull origin main && docker compose up -d --build`
 - [ ] `docker compose ps` healthy + login + core flows verified
-- [ ] Tunnel enabled? → `docker compose --profile tunnel up -d cloudflared`
+- [ ] Tunnel enabled? → `CF_TUNNEL_TOKEN` set in `.env` + `docker compose up -d --force-recreate cloudflared`

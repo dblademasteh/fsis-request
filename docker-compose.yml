@@ -61,10 +61,10 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: fsis-cloudflared
-    profiles: ["tunnel"]
-    command: tunnel run
+    command: >
+      sh -c "if [ -z \"$$TUNNEL_TOKEN\" ]; then echo 'CF_TUNNEL_TOKEN not set — cloudflared disabled.'; exit 0; fi; exec cloudflared tunnel run"
     environment:
-      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:-}
     networks:
       - fsis-network
     restart: unless-stopped
