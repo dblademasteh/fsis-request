@@ -95,7 +95,9 @@ Uses a token-based remote-managed tunnel. One-time setup in the Cloudflare dashb
 
 1. https://one.dash.cloudflare.com → **Networks → Tunnels → Create a tunnel** (type *Cloudflared*)
 2. Copy the token from the install command (`cloudflared tunnel run --token <TOKEN>`)
-3. Add a **Public Hostname**: domain `devbry.online` → service `HTTP` → URL `client:80`
+3. Add a **Public Hostname**: domain `devbry.online` → service `HTTP` → URL `http://localhost:38080`
+
+> ⚠️ **Important:** The `cloudflared` container runs with **host networking** (`network_mode: host`) because Docker on this NAS runs with `--iptables=false`, which prevents containers on the bridge network from reaching the internet. With host networking, cloudflared cannot resolve Docker service names — so the tunnel's origin URL must be `http://localhost:38080` (the client's published port), **not** `http://client:80`.
 
 Then on the NAS:
 
@@ -106,6 +108,43 @@ docker compose logs cloudflared --tail 20    # expect "Registered tunnel connect
 ```
 
 The `cloudflared` service is part of the default stack, so a plain `docker compose up -d` starts it too. It **self-disables** when no token is set: if `CF_TUNNEL_TOKEN` is empty, the container prints `CF_TUNNEL_TOKEN not set — cloudflared disabled.` and exits cleanly (no crash-loop). To enable public access, add the token to `.env` and recreate the container as above.
+
+## 5b. Database backup
+
+Two ways to back up the database:
+
+**Option A — helper script (recommended):**
+
+```bash
+cd /volume1/docker/fsis-request
+./backup-db.sh
+```
+
+Creates `./backups/fsis_backup_<timestamp>.sql` and keeps the newest 14 (override with `BACKUP_KEEP=30 ./backup-db.sh`).
+
+**Option B — compose service:**
+
+```bash
+cd /volume1/docker/fsis-request
+docker compose --profile backup run --rm backup
+```
+
+Writes to `./backups/` on the host (bind-mounted).
+
+**Scheduled backups (cron):** add to the NAS crontab (`crontab -e`):
+
+```
+0 2 * * * cd /volume1/docker/fsis-request && ./backup-db.sh >> /volume1/docker/fsis-request/backups/backup.log 2>&1
+```
+
+**Restore:**
+
+```bash
+cd /volume1/docker/fsis-request
+docker compose exec -T postgres psql -U "$(grep '^DB_USER=' .env | cut -d= -f2-)" -d "$(grep '^DB_NAME=' .env | cut -d= -f2-)" < backups/fsis_backup_<timestamp>.sql
+```
+
+> ⚠️ Backups are stored in `./backups/` on the NAS. For disaster recovery, copy them off the NAS (e.g. to a USB drive or cloud storage).
 
 ## 6. Services
 

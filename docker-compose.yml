@@ -69,6 +69,41 @@ services:
     depends_on:
       - client
 
+  backup:
+    image: postgres:16-alpine
+    container_name: fsis-backup
+    profiles: ["backup"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-fsis}
+      DB_USER: ${DB_USER:-fsis}
+      DB_PASSWORD: ${DB_PASSWORD:-fsis_password}
+    volumes:
+      - ./backups:/backups
+    networks:
+      - fsis-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /backups
+        STAMP=$$(date +%Y%m%d_%H%M%S)
+        OUTFILE=/backups/fsis_backup_$${STAMP}.sql
+        echo "Backing up database '$$DB_NAME'..."
+        PGPASSWORD="$$DB_PASSWORD" pg_dump -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER" -d "$$DB_NAME" > "$$OUTFILE"
+        SIZE=$$(wc -c < "$$OUTFILE")
+        echo "Backup created: $$OUTFILE ($$SIZE bytes)"
+        # Keep only the newest 14 backups
+        ls -1t /backups/fsis_backup_*.sql 2>/dev/null | tail -n +15 | while read -r old; do
+          echo "  Deleting $$old"
+          rm -f "$$old"
+        done
+        echo "Backup complete."
+
 volumes:
   postgres_data:
 
