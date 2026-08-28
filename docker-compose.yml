@@ -61,8 +61,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: fsis-cloudflared
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["if [ -z \"$$TUNNEL_TOKEN\" ]; then echo 'CF_TUNNEL_TOKEN not set - cloudflared disabled.'; exit 0; fi; exec cloudflared tunnel --no-autoupdate run --token \"$$TUNNEL_TOKEN\""]
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CF_TUNNEL_TOKEN}"]
     environment:
       TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:-}
     networks:
