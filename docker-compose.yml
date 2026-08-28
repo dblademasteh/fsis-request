@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -13,6 +11,12 @@ services:
     networks:
       - fsis-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fsis} -d ${DB_NAME:-fsis}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   server:
     build:
@@ -31,12 +35,13 @@ services:
       BASE_URL: ${BASE_URL:-http://localhost:3001}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - fsis-network
     restart: unless-stopped
     command: >
-      sh -c "sleep 10 && node dist/db/migrate.js && node dist/index.js"
+      sh -c "node dist/db/migrate.js && node dist/index.js"
 
   client:
     build:
@@ -56,6 +61,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: fsis-cloudflared
+    profiles: ["tunnel"]
     command: tunnel run
     environment:
       TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
@@ -64,25 +70,6 @@ services:
     restart: unless-stopped
     depends_on:
       - client
-
-  seed:
-    image: node:20-alpine
-    container_name: fsis-seed
-    working_dir: /app
-    command: sh -c "npm ci && npx ts-node src/db/deploy-stations.ts && npx ts-node src/db/seed-personnel.ts"
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: fsis
-      DB_USER: fsis
-      DB_PASSWORD: fsis_password
-    volumes:
-      - ./server:/app
-    depends_on:
-      - postgres
-    networks:
-      - fsis-network
-    restart: "no"
 
 volumes:
   postgres_data:

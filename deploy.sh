@@ -1,43 +1,60 @@
 #!/bin/bash
-# Deploy script for FSIS Request system
+# Deploy script for FSIS Request system — run on the NAS (BFP-R2-NAS1).
+# Pulls latest from GitHub, then rebuilds/restarts the Docker stack.
+#
+# Usage:
+#   ./deploy.sh            # pull + rebuild + restart
+#   ./deploy.sh --no-pull  # skip git pull (just rebuild/restart)
+#   ./deploy.sh --tunnel   # also start the Cloudflare tunnel service
 
 set -e
 
 echo "=== FSIS Request Deployment Script ==="
 
-# Check if .env exists
+# --- 1. .env check ---------------------------------------------------------
 if [ ! -f .env ]; then
-  echo "Creating .env from example..."
-  cp .env.example .env
-  echo "Please edit .env with your production values"
+  echo "ERROR: .env not found at project root."
+  echo "Create it from .env.example and fill in production values:"
+  echo "  cp .env.example .env"
+  echo "  # then edit .env (DB_PASSWORD, JWT_SECRET, ADMIN_PASSWORD, ...)"
   exit 1
 fi
 
-# Build and start containers
+# --- 2. Pull latest code (unless skipped) ----------------------------------
+if [ "$1" != "--no-pull" ]; then
+  echo "Pulling latest from origin/main..."
+  git pull origin main
+else
+  echo "Skipping git pull (--no-pull)."
+fi
+
+# --- 3. Build and start core services --------------------------------------
 echo "Building Docker images..."
-docker-compose build
+docker compose build
 
-echo "Starting services..."
-docker-compose up -d
+echo "Starting services (postgres, server, client)..."
+docker compose up -d
 
-# Wait for services
-echo "Waiting for services to start..."
-sleep 10
+# --- 4. Optional: Cloudflare tunnel ----------------------------------------
+if [ "$1" = "--tunnel" ] || [ "$2" = "--tunnel" ]; then
+  echo "Starting Cloudflare tunnel..."
+  docker compose --profile tunnel up -d cloudflared
+else
+  echo "Cloudflare tunnel not started (pass --tunnel to enable)."
+fi
 
-# Run migrations and seeds
-echo "Running database migrations..."
-docker-compose exec server npm run migrate
-
-echo "Seeding fire stations..."
-docker-compose exec server ts-node src/db/deploy-stations.ts
-
-echo "Seeding personnel data..."
-docker-compose exec server ts-node src/db/seed-personnel.ts
+# --- 5. Verify --------------------------------------------------------------
+echo ""
+echo "Waiting for services to become healthy..."
+sleep 8
 
 echo ""
 echo "=== Deployment Complete ==="
-echo "Client: http://$(hostname -I | awk '{print $1}'):80"
-echo "Server: http://$(hostname -I | awk '{print $1}'):3001"
+docker compose ps
+
 echo ""
-echo "To stop: docker-compose down"
-echo "To view logs: docker-compose logs -f"
+echo "Client:  http://$(hostname -I | awk '{print $1}'):${CLIENT_PORT:-38080}"
+echo "Server:  http://$(hostname -I | awk '{print $1}'):${SERVER_PORT:-3001}"
+echo ""
+echo "To view logs:  docker compose logs -f"
+echo "To stop:       docker compose down"

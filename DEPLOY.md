@@ -16,6 +16,8 @@ git pull origin main
 docker compose up -d --build        # rebuilds only what changed
 ```
 
+> 💡 A helper script `deploy.sh` wraps the NAS steps: `./deploy.sh` (pull + rebuild + restart), `./deploy.sh --no-pull` (rebuild only), `./deploy.sh --tunnel` (also start Cloudflare tunnel).
+
 ## 1. `.env` (on the NAS)
 
 Create once at the project root:
@@ -51,7 +53,7 @@ docker compose up -d --build
 On first boot (or after `down -v`):
 
 1. Postgres initializes with `DB_USER`/`DB_PASSWORD` from `.env`
-2. The server container waits 10s → runs migrations (`node dist/db/migrate.js`) → creates tables, seeds default stations, sets the admin password
+2. The server container waits for Postgres to become healthy (healthcheck), then runs migrations (`node dist/db/migrate.js`) → creates tables, seeds default stations, sets the admin password
 3. API listens on port 3001, nginx serves the client on `CLIENT_PORT` (38080)
 
 Verify:
@@ -99,11 +101,11 @@ Then on the NAS:
 
 ```bash
 grep -q CF_TUNNEL_TOKEN .env || echo "CF_TUNNEL_TOKEN=<paste-token>" >> .env
-docker compose up -d --force-recreate cloudflared
+docker compose --profile tunnel up -d cloudflared
 docker compose logs cloudflared --tail 20    # expect "Registered tunnel connection"
 ```
 
-Until configured, skip the tunnel entirely: `docker compose stop cloudflared`.
+The `cloudflared` service is behind a **profile** (`tunnel`), so it is **not** started by a plain `docker compose up -d`. Until you configure a token, simply don't start it — it won't crash-loop. To enable it: `docker compose --profile tunnel up -d cloudflared`.
 
 ## 6. Services
 
@@ -121,6 +123,8 @@ docker compose down            # stop + remove containers (keeps data volume)
 docker compose down -v         # ⚠️ also deletes the database volume
 docker compose logs -f         # follow all logs
 docker compose logs server     # API only
+docker compose --profile tunnel up -d cloudflared   # start tunnel (opt-in)
+docker compose stop cloudflared                     # stop tunnel
 ```
 
 ### Browser caching (service worker)
@@ -139,6 +143,7 @@ The client registers a service worker (`client/public/sw.js`, cache name `fsis-v
 | Old logo/assets after deploy | Service worker cache | Bump `CACHE_NAME` in `sw.js`; clients clear automatically on next load |
 | NAS files diverge from GitHub (merge errors on pull) | Direct edits were made on the NAS | `git reset --hard origin/main` (discards NAS-local edits; `.env` is untracked and safe) |
 | Nginx: `host not found in upstream` | Config references `host.docker.internal`, which doesn't exist in this Docker network | Use compose service names — `proxy_pass http://server:3001;` |
+| `cloudflared` not running after `up -d` | It's behind the `tunnel` profile (opt-in) | Start explicitly: `docker compose --profile tunnel up -d cloudflared` |
 
 ## 9. Release checklist
 
@@ -148,3 +153,4 @@ The client registers a service worker (`client/public/sw.js`, cache name `fsis-v
 - [ ] Committed & pushed from the PC
 - [ ] On NAS: `git pull origin main && docker compose up -d --build`
 - [ ] `docker compose ps` healthy + login + core flows verified
+- [ ] Tunnel enabled? → `docker compose --profile tunnel up -d cloudflared`

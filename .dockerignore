@@ -1,0 +1,29 @@
+# Version control
+.git
+.gitignore
+
+# Node
+node_modules
+**/node_modules
+npm-debug.log
+
+# Build output
+**/dist
+
+# Environment (secrets stay on the NAS)
+.env
+.env.*
+!.env.example
+
+# Docs / design assets not needed in the image
+*.md
+design-system
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
