@@ -4,6 +4,7 @@ import type { Personnel } from "../types";
 import { RANK_OPTIONS, DESIGNATION_OPTIONS } from "../types";
 import { importPersonnel, deletePersonnel, createPersonnel, updatePersonnel } from "../api";
 import { ConfirmModal } from "./ConfirmModal";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Users, Upload, Trash2, Search, FileText, AlertCircle, CheckCircle2, X, Download, Pencil, UserPlus } from "lucide-react";
 
 interface Props {
@@ -50,6 +51,7 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
   const [form, setForm] = useState<PersonnelForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast({ msg, show: true });
@@ -90,6 +92,8 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
     setEditing(null);
     setFormError(null);
   }, []);
+
+  useFocusTrap(modalOpen, modalRef, closeModal);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -403,15 +407,15 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
       )}
       {/* Create / Edit Modal */}
       {modalOpen && (
-        <div className="modal modal-open" onClick={closeModal}>
-          <div className="modal-box max-w-lg bg-base-100 border border-base-300 rounded-2xl p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="personnel-modal-title" onClick={closeModal}>
+          <div ref={modalRef} className="modal-box max-w-lg bg-base-100 border border-base-300 rounded-2xl p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-base-200">
               <div className="flex items-center gap-2.5">
                 <div className="bg-secondary/10 p-2 rounded-lg">
                   {editing ? <Pencil className="h-4 w-4 text-secondary" /> : <UserPlus className="h-4 w-4 text-secondary" />}
                 </div>
-                <h3 className="font-semibold text-base text-base-content">
+                <h3 id="personnel-modal-title" className="font-semibold text-base text-base-content">
                   {editing ? "Edit Personnel" : "Add Personnel"}
                 </h3>
               </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, type FormEvent } from "react";
+import { useState, useRef, useMemo, type FormEvent } from "react";
 import type { FireStation, Personnel } from "../types";
 import { PURPOSE_OPTIONS, DESIGNATION_OPTIONS, RANK_OPTIONS } from "../types";
 import { createRequest } from "../api";
@@ -248,26 +248,33 @@ export default function RequestForm({ stations, personnel, onCreated, preselecte
     }
   }
 
-  const stationNames = Array.from(
-  new Set(
-    stations.map((s) => {
-      return `${s.station_name}, ${s.province}`;
-    })
-  )
-);
+  const stationNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          stations.map((s) => {
+            return `${s.station_name}, ${s.province}`;
+          })
+        )
+      ),
+    [stations]
+  );
   const showTransferFields = purposeOfRequest === "Transfer of Unit Assignment";
   const showUpdateRank = purposeOfRequest === "Update Rank";
   const showUpdateName = purposeOfRequest === "Update Name";
   const showUpdateEmail = purposeOfRequest === "Update Email";
   const showIdentityFields = showTransferFields || purposeOfRequest === "New FSIS Account";
 
-  const purposeConfig: Record<string, { color: string; bg: string; border: string; icon: React.ReactNode; label: string }> = {
-    "Transfer of Unit Assignment": { color: "text-primary", bg: "bg-primary/10", border: "border-primary/20", icon: <ArrowUpRight className="h-3 w-3" />, label: "Transfer" },
-    "New FSIS Account": { color: "text-secondary", bg: "bg-secondary/10", border: "border-secondary/20", icon: <RefreshCw className="h-3 w-3" />, label: "New Account" },
-    "Update Rank": { color: "text-accent", bg: "bg-accent/10", border: "border-accent/20", icon: <BadgeCheck className="h-3 w-3" />, label: "Update Rank" },
-    "Update Name": { color: "text-info", bg: "bg-info/10", border: "border-info/20", icon: <PenLine className="h-3 w-3" />, label: "Update Name" },
-    "Update Email": { color: "text-warning", bg: "bg-warning/10", border: "border-warning/20", icon: <MailPlus className="h-3 w-3" />, label: "Update Email" },
-  };
+  const purposeConfig: Record<string, { color: string; bg: string; border: string; icon: React.ReactNode; label: string }> = useMemo(
+    () => ({
+      "Transfer of Unit Assignment": { color: "text-primary", bg: "bg-primary/10", border: "border-primary/20", icon: <ArrowUpRight className="h-3 w-3" />, label: "Transfer" },
+      "New FSIS Account": { color: "text-secondary", bg: "bg-secondary/10", border: "border-secondary/20", icon: <RefreshCw className="h-3 w-3" />, label: "New Account" },
+      "Update Rank": { color: "text-accent", bg: "bg-accent/10", border: "border-accent/20", icon: <BadgeCheck className="h-3 w-3" />, label: "Update Rank" },
+      "Update Name": { color: "text-info", bg: "bg-info/10", border: "border-info/20", icon: <PenLine className="h-3 w-3" />, label: "Update Name" },
+      "Update Email": { color: "text-warning", bg: "bg-warning/10", border: "border-warning/20", icon: <MailPlus className="h-3 w-3" />, label: "Update Email" },
+    }),
+    []
+  );
 
   return (
     <div className="card bg-base-100 shadow-lg border border-base-300 animate-[fadeUp_0.4s_ease-out_both]">

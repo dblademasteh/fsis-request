@@ -207,12 +207,12 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
               className="input input-bordered w-full pl-9 bg-base-200 focus:bg-base-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
             />
           </div>
-          <div className="flex rounded-lg border border-base-300 overflow-hidden self-start sm:self-auto">
-            {(["all", "pending", "approved"] as FilterStatus[]).map((f) => (
+          <div className="flex rounded-lg border border-base-300 overflow-x-auto self-start sm:self-auto">
+            {(["all", "pending", "approved", "denied"] as FilterStatus[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-3 py-2 min-h-[36px] text-xs font-medium transition-colors ${
+                className={`px-3 py-2 min-h-[36px] text-xs font-medium transition-colors whitespace-nowrap ${
                   filter === f
                     ? "bg-primary text-primary-content"
                     : "bg-base-200 text-base-content/60 hover:bg-base-300"

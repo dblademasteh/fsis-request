@@ -26,6 +26,7 @@ export default function SearchableSelect({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2, 9)}`, []);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -138,8 +139,13 @@ export default function SearchableSelect({
           className={`input input-bordered w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
             value && !open ? "pr-14" : "pr-8"
           } ${!value && !open ? "text-base-content/40" : ""}`}
+          role="combobox"
           aria-haspopup="listbox"
           aria-expanded={open}
+          aria-controls={open ? listboxId : undefined}
+          aria-activedescendant={open && activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+          aria-autocomplete="list"
+          autoComplete="off"
         />
         {value && !open && (
           <button
@@ -171,14 +177,14 @@ export default function SearchableSelect({
 
         {open && (
           <div className="absolute z-50 mt-1 w-full bg-base-100 border border-base-300 rounded-lg shadow-lg max-h-60 overflow-hidden">
-            <ul ref={listRef} role="listbox" className="overflow-y-auto max-h-48 p-1">
+            <ul ref={listRef} id={listboxId} role="listbox" aria-label={label || "Select an option"} className="overflow-y-auto max-h-48 p-1">
               {filtered.length === 0 ? (
                 <li className="px-3 py-2 text-xs text-base-content/40 text-center">
                   No matches found
                 </li>
               ) : (
                 filtered.map((option, index) => (
-                  <li key={`${option}-${index}`} role="option" aria-selected={value === option}>
+                  <li key={`${option}-${index}`} id={`${listboxId}-option-${index}`} role="option" aria-selected={value === option}>
                     <button
                       type="button"
                       onClick={() => handleSelect(option)}

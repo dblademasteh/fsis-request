@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 export function ConfirmModal({
@@ -14,29 +14,75 @@ export function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
-    if (show) {
-      const handleEsc = (e: KeyboardEvent) => {
-        if (e.key === "Escape") onCancel();
-      };
-      document.addEventListener("keydown", handleEsc);
-      return () => document.removeEventListener("keydown", handleEsc);
-    }
+    if (!show) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+        return;
+      }
+      // Trap focus within the dialog
+      if (e.key === "Tab") {
+        const focusables = dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (!focusables || focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    // Focus the cancel button by default (safe default action)
+    cancelRef.current?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused?.focus?.();
+    };
   }, [show, onCancel]);
 
   if (!show) return null;
 
+  const isDelete = /delete/i.test(title);
+
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-base-100 rounded-2xl border border-base-300 p-6 w-full max-w-sm mx-4 animate-[fadeUp_0.2s_ease-out_both]">
-        <h3 className="text-lg font-bold text-base-content mb-2">{title}</h3>
-        <p className="text-sm text-base-content/70 mb-6">{message}</p>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-modal-title"
+        aria-describedby="confirm-modal-message"
+        className="bg-base-100 rounded-2xl border border-base-300 p-6 w-full max-w-sm mx-4 animate-[fadeUp_0.2s_ease-out_both]"
+      >
+        <h3 id="confirm-modal-title" className="text-lg font-bold text-base-content mb-2">{title}</h3>
+        <p id="confirm-modal-message" className="text-sm text-base-content/70 mb-6">{message}</p>
         <div className="flex justify-end gap-3">
-          <button onClick={onCancel} className="btn btn-ghost btn-sm">
+          <button ref={cancelRef} onClick={onCancel} className="btn btn-ghost btn-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1">
             No, Cancel
           </button>
-          <button onClick={onConfirm} className="btn btn-primary btn-sm">
-            Yes, {title.includes("Delete") ? "Delete" : "Approve"}
+          <button
+            ref={confirmRef}
+            onClick={onConfirm}
+            className={`btn btn-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${isDelete ? "btn-error" : "btn-primary"}`}
+          >
+            Yes, {isDelete ? "Delete" : "Approve"}
           </button>
         </div>
       </div>

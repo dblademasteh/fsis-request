@@ -82,3 +82,21 @@ export interface Personnel {
   station: string | null;
   created_at: string;
 }
+
+export interface Tutorial {
+  id: number;
+  title: string;
+  description: string | null;
+  youtube_url: string;
+  youtube_id: string;
+  duration: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AppSettings {
+  id: number;
+  app_name: string;
+  logo_url: string | null;
+  updated_at: string;
+}

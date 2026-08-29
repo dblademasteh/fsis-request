@@ -1,11 +1,14 @@
 export function AppLogo({
   variant = "app",
   className = "",
+  logoUrl,
 }: {
   variant?: "app" | "splash";
   className?: string;
+  logoUrl?: string;
 }) {
   const isSplash = variant === "splash";
+  const logoSrc = logoUrl || "/logo.png";
 
   return (
     <div
@@ -16,7 +19,7 @@ export function AppLogo({
       } ${className}`}
     >
       <img
-        src="/logo.png"
+        src={logoSrc}
         alt="Bureau of Fire Protection Region II logo"
         loading={isSplash ? "eager" : "lazy"}
         className={`object-contain drop-shadow-md ${

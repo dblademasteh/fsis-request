@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import path from "path";
+import fs from "fs";
 import pool from "./db/pool";
 
 dotenv.config();
@@ -15,6 +17,13 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+
+// Serve uploaded images
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+app.use("/uploads", express.static(uploadDir));
 
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -371,6 +380,190 @@ app.delete("/api/personnel/:id", authenticate, async (req, res) => {
     res.json({ message: "Personnel deleted" });
   } catch (err) {
     res.status(500).json({ error: "Failed to delete personnel" });
+  }
+});
+
+app.post("/api/settings/logo-upload", authenticate, async (req, res) => {
+  const { logo_data, filename } = req.body;
+
+  if (!logo_data) {
+    return res.status(400).json({ error: "No image data provided" });
+  }
+
+  try {
+    const matches = logo_data.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ error: "Invalid image data format" });
+    }
+
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const extension = mimeType.replace("image/", "");
+    const safeFilename = (filename || `logo_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filePath = path.join(uploadDir, `${safeFilename}.${extension}`);
+    const fileUrl = `/uploads/${safeFilename}.${extension}`;
+
+    fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+    res.json({ logo_url: fileUrl, success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to upload logo" });
+  }
+});
+
+// --- Tutorials ---
+
+// Extract a YouTube video ID from various URL formats
+function extractYouTubeId(url: string): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  // youtu.be/<id>
+  let m = trimmed.match(/youtu\.be\/([a-zA-Z0-9_-]{6,})/);
+  if (m) return m[1];
+  // youtube.com/watch?v=<id>
+  m = trimmed.match(/[?&]v=([a-zA-Z0-9_-]{6,})/);
+  if (m) return m[1];
+  // youtube.com/embed/<id>
+  m = trimmed.match(/\/embed\/([a-zA-Z0-9_-]{6,})/);
+  if (m) return m[1];
+  // youtube.com/shorts/<id>
+  m = trimmed.match(/\/shorts\/([a-zA-Z0-9_-]{6,})/);
+  if (m) return m[1];
+  // bare video ID
+  if (/^[a-zA-Z0-9_-]{6,}$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+app.get("/api/tutorials", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM tutorials ORDER BY created_at DESC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch tutorials" });
+  }
+});
+
+app.post("/api/tutorials", authenticate, async (req, res) => {
+  const { title, description, youtube_url, duration } = req.body;
+
+  if (!title?.trim() || !youtube_url?.trim()) {
+    return res.status(400).json({ error: "Title and YouTube URL are required" });
+  }
+
+  const youtubeId = extractYouTubeId(youtube_url);
+  if (!youtubeId) {
+    return res.status(400).json({ error: "Invalid YouTube URL. Please provide a valid YouTube link." });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO tutorials (title, description, youtube_url, youtube_id, duration)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [title.trim(), description?.trim() || null, youtube_url.trim(), youtubeId, duration?.trim() || null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to create tutorial" });
+  }
+});
+
+app.put("/api/tutorials/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+  const { title, description, youtube_url, duration } = req.body;
+
+  if (!title?.trim() || !youtube_url?.trim()) {
+    return res.status(400).json({ error: "Title and YouTube URL are required" });
+  }
+
+  const youtubeId = extractYouTubeId(youtube_url);
+  if (!youtubeId) {
+    return res.status(400).json({ error: "Invalid YouTube URL. Please provide a valid YouTube link." });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE tutorials
+       SET title = $1, description = $2, youtube_url = $3, youtube_id = $4, duration = $5, updated_at = NOW()
+       WHERE id = $6
+       RETURNING *`,
+      [title.trim(), description?.trim() || null, youtube_url.trim(), youtubeId, duration?.trim() || null, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Tutorial not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update tutorial" });
+  }
+});
+
+app.delete("/api/tutorials/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM tutorials WHERE id = $1 RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Tutorial not found" });
+    }
+
+    res.json({ message: "Tutorial deleted" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete tutorial" });
+  }
+});
+
+app.get("/api/settings", async (_req, res) => {
+  try {
+    const result = await pool.query("SELECT app_name, logo_url FROM app_settings WHERE id = 1");
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Settings not found" });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch settings" });
+  }
+});
+
+app.put("/api/settings", authenticate, async (req, res) => {
+  const { app_name, logo_url, logo_data } = req.body;
+
+  if (!app_name?.trim()) {
+    return res.status(400).json({ error: "App name is required" });
+  }
+
+  // If logo_data (base64) is provided, convert to data URI and use as logo_url
+  let resolvedLogoUrl = logo_url?.trim() || null;
+  if (logo_data) {
+    const dataUri = logo_data.startsWith("data:image/")
+      ? logo_data
+      : `data:image/png;base64,${logo_data}`;
+    resolvedLogoUrl = dataUri;
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE app_settings
+       SET app_name = $1, logo_url = $2, updated_at = NOW()
+       WHERE id = 1
+       RETURNING app_name, logo_url, updated_at`,
+      [app_name.trim(), resolvedLogoUrl]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Settings not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update settings" });
   }
 });
 

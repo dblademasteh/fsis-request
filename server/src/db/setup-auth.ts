@@ -14,7 +14,8 @@ async function setupAuth() {
       );
     `);
 
-    const hashedPassword = await bcrypt.hash("@dmin123!", 10);
+    const adminPassword = process.env.ADMIN_PASSWORD || "@dmin123!";
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
     await client.query(
       `INSERT INTO users (username, password, role) VALUES ($1, $2, $3)
        ON CONFLICT (username) DO UPDATE SET password = $2`,

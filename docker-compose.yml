@@ -41,7 +41,7 @@ services:
       - fsis-network
     restart: unless-stopped
     command: >
-      sh -c "node dist/db/migrate.js && node dist/index.js"
+      sh -c "node dist/db/migrate.js && node dist/db/setup-auth.js && node dist/index.js"
 
   client:
     build:

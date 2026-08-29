@@ -59,6 +59,29 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS tutorials (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        youtube_url VARCHAR(500) NOT NULL,
+        youtube_id VARCHAR(50) NOT NULL,
+        duration VARCHAR(20),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        app_name VARCHAR(255) NOT NULL DEFAULT 'Unified BFP R2 eRequest Form',
+        logo_url VARCHAR(500) DEFAULT '/logo.png',
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+
+      -- Seed default app settings if not present
+      INSERT INTO app_settings (id, app_name, logo_url)
+      VALUES (1, 'Unified BFP R2 eRequest Form', '/logo.png')
+      ON CONFLICT (id) DO NOTHING;
+
       INSERT INTO fire_stations (station_name, municipality, province) VALUES
         ('Tuguegarao City Fire Station', 'Tuguegarao City', 'Cagayan'),
         ('Cagayan Provincial Fire Station', 'Tuguegarao City', 'Cagayan'),
@@ -175,6 +198,15 @@ async function migrate() {
        ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password`,
       [adminHash]
     );
+
+    // Ensure app_settings row exists with defaults
+    await client.query(
+      `INSERT INTO app_settings (id, app_name, logo_url)
+       VALUES (1, 'Unified BFP R2 eRequest Form', '/logo.png')
+       ON CONFLICT (id) DO UPDATE SET
+         app_name = EXCLUDED.app_name,
+         logo_url = EXCLUDED.logo_url`
+    ).catch(() => {});
 
     console.log("Migration completed successfully.");
   } catch (err) {

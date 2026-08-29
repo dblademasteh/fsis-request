@@ -4,12 +4,10 @@ import {
   FileText,
   Lock,
   LogOut,
-  Moon,
   Plus,
   Search,
   Shield,
   ShieldCheck,
-  Sun,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { TransferRequest } from "../types";
@@ -22,13 +20,13 @@ interface LandingPageProps {
   onLogoutUser: () => void;
   notifWidget?: React.ReactNode;
   dpaAccepted: boolean;
-  darkMode: boolean;
-  onToggleDarkMode: () => void;
   onSubmit: () => void;
   onTrack: () => void;
   onAdminLogin: () => void;
   onShowPrivacy: () => void;
   onHowItWorks: () => void;
+  appName: string;
+  logoUrl?: string;
 }
 
 export default function LandingPage({
@@ -37,13 +35,13 @@ export default function LandingPage({
   onLogoutUser,
   notifWidget,
   dpaAccepted,
-  darkMode,
-  onToggleDarkMode,
   onSubmit,
   onTrack,
   onAdminLogin,
   onShowPrivacy,
   onHowItWorks,
+  appName,
+  logoUrl,
 }: LandingPageProps) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -65,14 +63,14 @@ export default function LandingPage({
           aria-hidden="true"
         />
 
-        <div className="absolute top-4 left-4 z-10 text-left max-w-[45%]">
+        <div className="absolute top-4 left-4 z-10 text-left max-w-[45%] sm:max-w-[55%]">
           <p className="text-[11px] sm:text-xs font-medium uppercase tracking-wider text-base-content/40">{greeting}</p>
           {displayName && (
-            <p className="text-sm sm:text-base font-semibold text-base-content truncate leading-tight">{displayName}</p>
+            <p className="text-sm sm:text-base font-semibold text-base-content truncate leading-tight max-w-[140px] sm:max-w-none">{displayName}</p>
           )}
         </div>
 
-        <div className="absolute top-4 right-4 z-10 flex items-center gap-1">
+        <div className="absolute top-4 right-16 sm:right-20 z-10 flex items-center gap-1">
           {notifWidget}
           {displayName && (
             <button
@@ -84,20 +82,13 @@ export default function LandingPage({
               <LogOut className="h-5 w-5" />
             </button>
           )}
-          <button
-            onClick={onToggleDarkMode}
-            className="btn btn-ghost btn-circle btn-sm text-base-content/50 hover:text-base-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
         </div>
 
-        <div className="relative max-w-4xl mx-auto px-4 sm:px-6 pt-10 sm:pt-12 pb-8 sm:pb-10 flex flex-col items-center text-center gap-4 sm:gap-5">
-          <AppLogo className="animate-[fadeUp_0.5s_ease-out_both] [animation-delay:80ms]" />
+        <div className="relative max-w-4xl mx-auto px-4 sm:px-6 pt-20 sm:pt-24 pb-8 sm:pb-10 flex flex-col items-center text-center gap-6 sm:gap-8">
+          <AppLogo className="animate-[fadeUp_0.5s_ease-out_both] [animation-delay:80ms]" logoUrl={logoUrl} />
 
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-base-content leading-tight animate-[fadeUp_0.5s_ease-out_both] [animation-delay:160ms]">
-            Unified BFP R2 <span className="text-primary">eRequest Form</span>
+            {appName}
           </h1>
 
           <p className="max-w-xl text-sm sm:text-base text-base-content/60 leading-relaxed animate-[fadeUp_0.5s_ease-out_both] [animation-delay:240ms]">

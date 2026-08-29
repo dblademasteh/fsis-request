@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { FireStation, TransferRequest, Personnel } from "./types";
-import { fetchStations, fetchRequests, trackRequests, fetchPersonnel, loginUser } from "./api";
+import type { FireStation, TransferRequest, Personnel, AppSettings } from "./types";
+import { fetchStations, fetchRequests, trackRequests, fetchPersonnel, loginUser, fetchSettings, updateSettings, uploadLogo } from "./api";
 import { playNewRequest, playApproved, playDenied } from "./sounds";
 import { requestNotificationPermission, showDeviceNotification, createNotification, type AppNotification } from "./notifications";
-import { Plus, Search, ShieldCheck, Home, CheckCircle2, AlertCircle, Hash, Lock, LogOut, User, KeyRound, Eye, EyeOff, Moon, Sun, Users, FileText, Shield, Fingerprint, Bell, Info } from "lucide-react";
+import { Plus, Search, ShieldCheck, CheckCircle2, AlertCircle, Hash, Lock, LogOut, User, KeyRound, Eye, EyeOff, Moon, Sun, Users, FileText, Shield, Fingerprint, Bell, Info, PlayCircle, ChevronDown, MoreHorizontal, Home, Settings, Save, Loader2 } from "lucide-react";
 import LandingPage from "./components/LandingPage";
 import HowItWorksPage from "./components/HowItWorksPage";
+import VideoTutorialsPage from "./components/VideoTutorialsPage";
 import RequestForm from "./components/RequestForm";
 import { RequestCategories } from "./components/RequestCategories";
 import TrackPage from "./components/TrackPage";
@@ -14,8 +15,9 @@ import PersonnelManager from "./components/PersonnelManager";
 import NotificationPanel from "./components/NotificationPanel";
 import NotificationBellButton from "./components/NotificationBellButton";
 import { AppLogo } from "./components/AppLogo";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 
-type Page = "landing" | "submit" | "track" | "admin" | "how" | "submit_category";
+type Page = "landing" | "submit" | "track" | "admin" | "how" | "submit_category" | "videos";
 
 function AdminTabs({ requests, personnel, loadRequests, loadPersonnel }: { requests: TransferRequest[]; personnel: Personnel[]; loadRequests: () => void; loadPersonnel: () => void }) {
   const [tab, setTab] = useState<"requests" | "personnel">("requests");
@@ -51,6 +53,7 @@ function AdminTabs({ requests, personnel, loadRequests, loadPersonnel }: { reque
 export default function App() {
   const [stations, setStations] = useState<FireStation[]>([]);
   const [requests, setRequests] = useState<TransferRequest[]>([]);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const requestsRef = useRef<TransferRequest[]>([]);
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [personnelLoaded, setPersonnelLoaded] = useState(false);
@@ -66,6 +69,8 @@ export default function App() {
   const [loginShowPassword, setLoginShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
   const loginInputRef = useRef<HTMLInputElement>(null);
+  const loginModalRef = useRef<HTMLDivElement>(null);
+  const privacyModalRef = useRef<HTMLDivElement>(null);
 
   const [trackAccountNumber, setTrackAccountNumber] = useState("");
   const [trackResults, setTrackResults] = useState<TransferRequest[] | null>(null);
@@ -85,10 +90,41 @@ export default function App() {
   const [accountInput, setAccountInput] = useState("");
   const [accountError, setAccountError] = useState("");
   const prevApprovedIds = useRef<Set<number>>(new Set());
+  const [appSettingsForm, setAppSettingsForm] = useState<{ app_name: string; logo_url: string; logo_data?: string }>({ app_name: "", logo_url: "" });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
   const hasInitializedPolling = useRef(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [showResourcesDropdown, setShowResourcesDropdown] = useState(false);
+  const resourcesDropdownRef = useRef<HTMLDivElement>(null);
+  const notifWrapperRef = useRef<HTMLDivElement>(null);
   const prevRequestIds = useRef<Set<number>>(new Set());
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (showResourcesDropdown && resourcesDropdownRef.current && !resourcesDropdownRef.current.contains(e.target as Node)) {
+        setShowResourcesDropdown(false);
+      }
+      if (showNotifPanel && notifWrapperRef.current && !notifWrapperRef.current.contains(e.target as Node)) {
+        setShowNotifPanel(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showResourcesDropdown, showNotifPanel, resourcesDropdownRef]);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const s = await fetchSettings();
+      setSettings(s);
+      setAppSettingsForm({ app_name: s.app_name, logo_url: s.logo_url || "" });
+    } catch {
+      console.error("Failed to load settings");
+    }
+  }, []);
 
   useEffect(() => {
     requestNotificationPermission();
@@ -176,7 +212,7 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { loadStations(); loadRequests(); loadPersonnel(); }, [loadStations, loadRequests, loadPersonnel]);
+  useEffect(() => { loadStations(); loadRequests(); loadPersonnel(); loadSettings(); }, [loadStations, loadRequests, loadPersonnel, loadSettings]);
 
   useEffect(() => {
     const interval = setInterval(() => { loadRequests(); }, 15000);
@@ -188,6 +224,21 @@ export default function App() {
       loginInputRef.current.focus();
     }
   }, [showLoginModal]);
+
+  // Scroll to top whenever the active page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+  }, [page]);
+
+  useFocusTrap(showLoginModal, loginModalRef, () => {
+    setShowLoginModal(false);
+    setLoginError("");
+    setLoginUsername("");
+    setLoginPassword("");
+  });
+  useFocusTrap(showPrivacyModal || !dpaAccepted, privacyModalRef, () => {
+    if (showPrivacyModal) setShowPrivacyModal(false);
+  });
 
   const me = personnel.find((p) => p.account_number === userAccountNumber);
   const isLoggedIn = !!me && !!userAccountNumber;
@@ -221,7 +272,7 @@ export default function App() {
   };
 
   const landingNotifWidget = (
-    <div className="relative" data-notif-wrapper>
+    <div className="relative" data-notif-wrapper ref={notifWrapperRef}>
       <div data-notif-trigger>
         <NotificationBellButton count={unreadCount} onClick={() => setShowNotifPanel(!showNotifPanel)} />
       </div>
@@ -271,6 +322,7 @@ export default function App() {
       setAuthToken(token);
       setIsAdminAuth(true);
       setShowLoginModal(false);
+      setShowAccountModal(false);
       setLoginUsername("");
       setLoginPassword("");
       setPage("admin");
@@ -285,6 +337,62 @@ export default function App() {
     setIsAdminAuth(false);
     setAuthToken(null);
     setPage("landing");
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSettingsSaving(true);
+    setSettingsSaved(false);
+    try {
+      const updated = await updateSettings(appSettingsForm);
+      setSettings(updated);
+      setAppSettingsForm({ app_name: updated.app_name, logo_url: updated.logo_url || "" });
+      setSettingsSaved(true);
+      setTimeout(() => setSettingsSaved(false), 2000);
+    } catch (err: any) {
+      setSettingsSaved(false);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Only allow image files up to 5MB
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File size must be under 5MB.");
+      return;
+    }
+    // Check auth token exists
+    const token = localStorage.getItem("fsis_auth_token");
+    if (!token) {
+      alert("Please log in as admin first.");
+      return;
+    }
+    setSettingsSaving(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+      // Upload to server to get a URL
+      const result = await uploadLogo({ logo_data: dataUrl, filename: file.name });
+      // Set logo_url to the returned URL and clear logo_data
+      setAppSettingsForm({ ...appSettingsForm, logo_url: result.logo_url, logo_data: "" });
+    } catch (err: any) {
+      alert(err.message || "Failed to upload logo.");
+    } finally {
+      setSettingsSaving(false);
+      // Clear the file input so the same file can be re-selected if needed
+      if (e.target) e.target.value = "";
+    }
   };
 
   const handleRequestCreated = (accountNum?: string) => {
@@ -312,8 +420,8 @@ export default function App() {
       {/* Splash Screen */}
       {showSplash && (
         <div className="fixed inset-0 z-[90] bg-base-100 flex flex-col items-center justify-center gap-6 animate-[fadeIn_0.3s_ease-out]" role="status" aria-live="polite" aria-label="Loading application">
-          <AppLogo variant="splash" />
-          <p className="text-xs uppercase tracking-[0.25em] text-base-content/40">BFP Region II &middot; eRequest</p>
+          <AppLogo variant="splash" logoUrl={settings?.logo_url || undefined} />
+          <p className="text-xs uppercase tracking-[0.25em] text-base-content/40">{settings?.app_name || "BFP Region II · eRequest"}</p>
         </div>
       )}
 
@@ -330,21 +438,20 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage("landing")}
-                  className="flex items-center gap-2 px-4 py-2 text-base font-medium text-base-content/50 hover:text-base-content rounded-lg hover:bg-base-200 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                  className="flex items-center gap-2 px-4 py-2 text-base font-medium rounded-lg text-base-content/60 hover:text-base-content hover:bg-base-200 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                  aria-label="Home"
                 >
                   <Home className="h-5 w-5" />
-                  <span>Home</span>
+                  Home
                 </button>
-                <div className="w-px h-6 bg-base-300 mx-1" />
                 {[
                   { id: "submit_category" as Page, icon: Plus, label: "New Request" },
                   { id: "track" as Page, icon: Search, label: "Track" },
-                  { id: "how" as Page, icon: Info, label: "How it Works" },
                 ].map(({ id, icon: Icon, label }) => (
                   <button
                     key={id}
                     onClick={() => setPage(id)}
-                    className={`flex items-center gap-2 px-5 py-2 text-base font-medium rounded-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
+                    className={`flex items-center gap-2 px-4 py-2 text-base font-medium rounded-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
                       page === id
                         ? "bg-primary text-primary-content shadow-sm"
                         : "text-base-content/60 hover:text-base-content hover:bg-base-200"
@@ -354,20 +461,76 @@ export default function App() {
                     {label}
                   </button>
                 ))}
-                <button
-                  onClick={openAdminLogin}
-                  className={`flex items-center gap-2 px-5 py-2 text-base font-medium rounded-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
-                    page === "admin"
-                      ? "bg-primary text-primary-content shadow-sm"
-                      : "text-base-content/60 hover:text-base-content hover:bg-base-200"
-                  }`}
-                >
-                  <ShieldCheck className="h-5 w-5" />
-                  Admin
-                  {isAdminAuth && <span className="badge badge-xs badge-success border-none">Auth</span>}
-                </button>
+                {/* Resources dropdown — groups How it Works & Video Tutorials */}
+                <div className="relative" ref={resourcesDropdownRef}>
+                  <button
+                    onClick={() => setShowResourcesDropdown(!showResourcesDropdown)}
+                    className={`flex items-center gap-2 px-4 py-2 text-base font-medium rounded-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
+                      page === "how" || page === "videos"
+                        ? "bg-primary text-primary-content shadow-sm"
+                        : "text-base-content/60 hover:text-base-content hover:bg-base-200"
+                    }`}
+                    aria-haspopup="menu"
+                    aria-expanded={showResourcesDropdown}
+                  >
+                    <Info className="h-5 w-5" aria-hidden="true" />
+                    <span>Resources</span>
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${showResourcesDropdown ? "rotate-180" : ""} text-base-content/40`} />
+                  </button>
+                  {showResourcesDropdown && (
+                    <div
+                      role="menu"
+                      className="absolute left-0 top-full mt-1 min-w-[180px] z-[30] bg-base-100 border border-base-300 rounded-xl shadow-lg ring-1 ring-black/5 animate-[fadeUp_0.15s_ease-out]"
+                    >
+                      <div className="py-1">
+                        <button
+                          role="menuitem"
+                          onClick={() => { setPage("how"); setShowResourcesDropdown(false); }}
+                          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-base-content hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                        >
+                          <Info className="h-4 w-4 text-base-content/50" />
+                          How it Works
+                        </button>
+                        <button
+                          role="menuitem"
+                          onClick={() => { setPage("videos"); setShowResourcesDropdown(false); }}
+                          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-base-content hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                        >
+                          <PlayCircle className="h-4 w-4 text-base-content/50" />
+                          Video Tutorials
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Admin — distinct styling for user vs admin nav */}
+                {isAdminAuth ? (
+                  <button
+                    onClick={() => setPage("admin")}
+                    className={`flex items-center gap-2 px-4 py-2 text-base font-medium rounded-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
+                      page === "admin"
+                        ? "bg-accent text-accent-content shadow-sm"
+                        : "text-accent/80 hover:text-accent hover:bg-accent/10"
+                    }`}
+                  >
+                    <ShieldCheck className="h-5 w-5" />
+                    Admin Dashboard
+                  </button>
+                ) : (
+                  <button
+                    onClick={openAdminLogin}
+                    className={`flex items-center gap-2 px-4 py-2 text-base font-medium rounded-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${
+                      page === "admin"
+                        ? "bg-primary text-primary-content shadow-sm"
+                        : "text-base-content/60 hover:text-base-content hover:bg-base-200"
+                    }`}
+                  >
+                    <ShieldCheck className="h-5 w-5" />
+                    Admin
+                  </button>
+                )}
               </div>
-              <div className="flex items-center gap-1 relative" data-notif-wrapper>
+              <div className="flex items-center gap-1 mr-20 relative" data-notif-wrapper ref={notifWrapperRef}>
                 <div data-notif-trigger>
                   <NotificationBellButton count={unreadCount} onClick={() => setShowNotifPanel(!showNotifPanel)} />
                 </div>
@@ -376,13 +539,16 @@ export default function App() {
                     <NotificationPanel notifications={notifications} onMarkAllRead={markAllRead} onClear={clearNotifications} />
                   </div>
                 )}
-                <button
-                  onClick={() => setDarkMode(!darkMode)}
-                  className="flex items-center gap-2 px-3 py-2 text-base font-medium rounded-lg text-base-content/60 hover:text-base-content hover:bg-base-200 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
-                  aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-                >
-                  {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-                </button>
+                {isAdminAuth && (
+                  <button
+                    onClick={logoutAdmin}
+                    className="flex items-center gap-2 px-3 py-2 text-base font-medium rounded-lg text-error/70 hover:text-error hover:bg-error/10 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1"
+                    aria-label="Logout from admin"
+                  >
+                    <LogOut className="h-5 w-5" />
+                    <span className="hidden lg:inline">Logout</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -393,15 +559,23 @@ export default function App() {
       {page !== "landing" && (
         <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-base-100 border-t border-base-300 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]" role="navigation" aria-label="Main navigation" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           <div className="flex items-center justify-around py-1.5 px-2">
+              <button
+                onClick={() => setPage("landing")}
+                className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-base-content/50 hover:text-base-content transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 min-w-[60px]"
+                aria-label="Home"
+              >
+                <div className="p-1.5 rounded-xl">
+                  <Home className="h-5 w-5" />
+                </div>
+                <span className="text-[10px] font-medium leading-none">Home</span>
+              </button>
               {[
                 { id: "submit_category" as Page, icon: Plus, label: "New Request" },
                 { id: "track" as Page, icon: Search, label: "Track" },
-                { id: "how" as Page, icon: Info, label: "Guide" },
-                { id: "admin" as Page, icon: ShieldCheck, label: "Admin" },
               ].map(({ id, icon: Icon, label }) => (
               <button
                 key={id}
-                onClick={() => id === "admin" ? openAdminLogin() : setPage(id)}
+                onClick={() => setPage(id)}
                 className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 min-w-[60px] ${
                   page === id
                     ? "text-primary"
@@ -415,12 +589,71 @@ export default function App() {
                   <Icon className="h-5 w-5" />
                 </div>
                 <span className="text-[10px] font-medium leading-none">{label}</span>
-                {id === "admin" && isAdminAuth && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-success rounded-full" />
-                )}
               </button>
             ))}
-            <div className="relative" data-notif-wrapper>
+            {/* More — dropdown with Resources + Admin */}
+            <div className="relative" ref={resourcesDropdownRef}>
+              <button
+                onClick={() => setShowResourcesDropdown(!showResourcesDropdown)}
+                className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 min-w-[60px] ${
+                  showResourcesDropdown ? "text-primary" : "text-base-content/50 active:text-base-content"
+                }`}
+                aria-haspopup="menu"
+                aria-expanded={showResourcesDropdown}
+              >
+                <div className={`p-1.5 rounded-xl transition-all duration-200 ${
+                  showResourcesDropdown ? "bg-primary/10" : ""
+                }`}>
+                  <MoreHorizontal className="h-5 w-5" />
+                </div>
+                <span className="text-[10px] font-medium leading-none">More</span>
+              </button>
+              {showResourcesDropdown && (
+                <div
+                  role="menu"
+                  className="absolute bottom-full right-0 mb-2 z-[30] w-48 bg-base-100 border border-base-300 rounded-xl shadow-lg ring-1 ring-black/5 animate-[fadeUp_0.15s_ease-out]"
+                >
+                  <div className="py-1">
+                    <button
+                      role="menuitem"
+                      onClick={() => { setPage("how"); setShowResourcesDropdown(false); }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-base-content hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                    >
+                      <Info className="h-4 w-4 text-base-content/50" />
+                      How it Works
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => { setPage("videos"); setShowResourcesDropdown(false); }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm text-base-content hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                    >
+                      <PlayCircle className="h-4 w-4 text-base-content/50" />
+                      Video Tutorials
+                    </button>
+                    {isAdminAuth ? (
+                      <button
+                        role="menuitem"
+                        onClick={() => { setPage("admin"); setShowResourcesDropdown(false); }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-accent/80 hover:text-accent hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1"
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        Admin Dashboard
+                      </button>
+                    ) : (
+                      <button
+                        role="menuitem"
+                        onClick={() => { openAdminLogin(); setShowResourcesDropdown(false); }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-base-content/60 hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+                      >
+                        <ShieldCheck className="h-4 w-4 text-base-content/50" />
+                        Admin
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="relative" ref={notifWrapperRef}>
               <button
                 onClick={() => setShowNotifPanel(!showNotifPanel)}
                 className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-base-content/50 active:text-base-content transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 min-w-[60px]"
@@ -442,19 +675,20 @@ export default function App() {
                 </div>
               )}
             </div>
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-base-content/50 active:text-base-content transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 min-w-[60px]"
-              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              <div className="p-1.5">
-                {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-              </div>
-              <span className="text-[10px] font-medium leading-none">{darkMode ? "Light" : "Dark"}</span>
-            </button>
           </div>
         </nav>
       )}
+
+      {/* Floating theme toggle — upper right corner, visible on all pages.
+          No background/border/shadow so it's just a clean icon with breathing room. */}
+      <button
+        onClick={() => setDarkMode(!darkMode)}
+        className="fixed top-4 right-4 z-[30] flex items-center justify-center w-10 h-10 text-base-content/60 hover:text-base-content transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-base-100"
+        aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+        title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+      >
+        {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+      </button>
 
       {/* Main */}
       {page === "landing" ? (
@@ -470,13 +704,13 @@ export default function App() {
           onLogoutUser={logoutUser}
           notifWidget={landingNotifWidget}
           dpaAccepted={dpaAccepted}
-          darkMode={darkMode}
-          onToggleDarkMode={() => setDarkMode(!darkMode)}
-onSubmit={() => setPage("submit_category")}
+          onSubmit={() => setPage("submit_category")}
           onTrack={() => setPage("track")}
           onAdminLogin={openAdminLogin}
           onShowPrivacy={() => setShowPrivacyModal(true)}
           onHowItWorks={() => setPage("how")}
+          appName={settings?.app_name || "Unified BFP R2 eRequest Form"}
+          logoUrl={settings?.logo_url || undefined}
         />
       ) : (
       <main id="main-content" className="flex-1 max-w-6xl mx-auto w-full px-3 sm:px-4 md:px-6 lg:px-8 pt-4 sm:pt-6 md:pt-8 pb-24 sm:pb-8 md:pb-8 scroll-mt-14">
@@ -514,6 +748,11 @@ onSubmit={() => setPage("submit_category")}
           <HowItWorksPage onBack={() => setPage("landing")} onSubmit={() => setPage("submit_category")} />
         )}
 
+        {/* Video Tutorials */}
+        {page === "videos" && (
+          <VideoTutorialsPage onBack={() => setPage("landing")} isAdmin={isAdminAuth} />
+        )}
+
         {/* Track */}
         {page === "track" && (
           <TrackPage
@@ -539,32 +778,110 @@ onSubmit={() => setPage("submit_category")}
                   <p className="text-xs sm:text-sm text-base-content/50 truncate">Manage and process incoming requests</p>
                 </div>
               </div>
-              <button onClick={logoutAdmin} className="btn btn-ghost btn-sm gap-2 text-error shrink-0 hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1">
+              <button onClick={logoutAdmin} className="btn btn-ghost btn-sm gap-2 text-error shrink-0 mr-16 sm:mr-20 hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-1">
                 <LogOut className="h-4 w-4" />
                 <span>Logout</span>
               </button>
             </div>
 
             <AdminTabs requests={requests} personnel={personnel} loadRequests={loadRequests} loadPersonnel={loadPersonnel} />
+
+            {/* App Settings — logo & name */}
+            <div className="card bg-base-100 border border-base-300 shadow-sm animate-[fadeUp_0.3s_ease-out_both] [animation-delay:400ms]">
+              <div className="card-body p-5 sm:p-6">
+                <h3 className="text-lg font-semibold text-base-content flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-base-content/50" />
+                  App Settings
+                </h3>
+                <p className="text-sm text-base-content/50 mb-4">Update the application logo and name displayed across the app.</p>
+
+                <form onSubmit={handleSaveSettings} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-base-content/70 mb-1">App Name</label>
+                    <input
+                      type="text"
+                      value={appSettingsForm.app_name}
+                      onChange={(e) => setAppSettingsForm({ ...appSettingsForm, app_name: e.target.value })}
+                      className="input input-bordered w-full text-base"
+                      placeholder="Unified BFP R2 eRequest Form"
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-base-content/70 mb-1">Logo</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="text"
+                        value={appSettingsForm.logo_url}
+                        onChange={(e) => setAppSettingsForm({ ...appSettingsForm, logo_url: e.target.value })}
+                        className="input input-bordered flex-1 text-base"
+                        placeholder="/logo.png or image URL"
+                      />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        ref={fileInputRef}
+                        onChange={handleLogoUpload}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="btn btn-outline btn-sm shrink-0"
+                      >
+                        Upload Photo
+                      </button>
+                    </div>
+                    <p className="text-xs text-base-content/40 mt-1">Upload a photo or enter a URL/path (e.g. /logo.png).</p>
+
+                    {/* Logo preview */}
+                    <div className="mt-3 flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-lg bg-base-200 border border-base-300 overflow-hidden flex items-center justify-center shrink-0">
+                        {appSettingsForm.logo_url.startsWith("data:image") ? (
+                          <img src={appSettingsForm.logo_url} alt="Logo preview" className="max-w-full max-h-full object-contain" />
+                        ) : appSettingsForm.logo_url ? (
+                          <img src={appSettingsForm.logo_url} alt="Logo preview" className="max-w-full max-h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : (
+                          <span className="text-xs text-base-content/30">No preview</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-base-content/40">Preview</span>
+                    </div>
+                  </div>
+                  <div className="sm:col-span-2 flex items-center gap-3 pt-2">
+                    <button
+                      type="submit"
+                      disabled={settingsSaving}
+                      className="btn btn-primary btn-sm gap-2"
+                    >
+                      {settingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Save
+                    </button>
+                    {settingsSaved && <span className="text-xs text-success font-medium">Saved!</span>}
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
         )}
       </main>
       )}
 
 
-      {/* Footer */}
-      <footer className={`border-t border-base-300 bg-base-100 mt-auto py-4 ${page !== "landing" ? "max-sm:pb-[calc(72px+env(safe-area-inset-bottom))]" : ""}`}>
+      {/* Footer — only on landing page */}
+      {page === "landing" && (
+      <footer className="border-t border-base-300 bg-base-100 mt-auto py-4">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-3 text-xs text-base-content/60 text-center">
           <span>&copy; {new Date().getFullYear()} Bureau of Fire Protection Region II</span>
           <span className="hidden sm:inline">|</span>
           <span>Developed by: <span className="text-base-content/70 font-medium">FO3 Rani Bryan O. Pasinos</span></span>
         </div>
       </footer>
-
+      )}
       {/* Admin Login Modal */}
       {showLoginModal && (
         <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="login-title">
-          <div className="modal-box max-w-sm p-5 sm:p-6">
+          <div ref={loginModalRef} className="modal-box max-w-sm p-5 sm:p-6">
             <form onSubmit={handleAdminLogin} className="space-y-4">
               <div className="text-center">
                 <div className="inline-flex p-3 bg-accent/10 rounded-2xl mb-3">
@@ -594,6 +911,7 @@ onSubmit={() => setPage("submit_category")}
                   onChange={(e) => setLoginUsername(e.target.value)}
                   className="input input-bordered w-full"
                   placeholder="Enter username"
+                  autoComplete="username"
                   required
                 />
               </div>
@@ -611,6 +929,7 @@ onSubmit={() => setPage("submit_category")}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     className="input input-bordered w-full pr-10"
                     placeholder="Enter password"
+                    autoComplete="current-password"
                     required
                   />
                   <button
@@ -642,7 +961,7 @@ onSubmit={() => setPage("submit_category")}
       {/* Data Privacy Notice Modal */}
       {(!dpaAccepted || showPrivacyModal) && (
         <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="privacy-title">
-          <div className="modal-box max-w-lg max-h-[80vh] overflow-y-auto">
+          <div ref={privacyModalRef} className="modal-box max-w-lg max-h-[80vh] overflow-y-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-primary/10 rounded-lg">
                 <Shield className="h-5 w-5 text-primary" />
@@ -739,7 +1058,7 @@ onSubmit={() => setPage("submit_category")}
       )}
 
       {/* Account Number Collection Modal */}
-      {dpaAccepted && !userAccountNumber && (
+      {dpaAccepted && !userAccountNumber && !showLoginModal && !(isAdminAuth && page === "admin") && (
         <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="account-title">
           <div className="modal-box max-w-sm">
             <div className="text-center mb-5">
