@@ -99,14 +99,19 @@ export default function App() {
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [showResourcesDropdown, setShowResourcesDropdown] = useState(false);
   const resourcesDropdownRef = useRef<HTMLDivElement>(null);
+  const resourcesDropdownMobileRef = useRef<HTMLDivElement>(null);
   const notifWrapperRef = useRef<HTMLDivElement>(null);
   const prevRequestIds = useRef<Set<number>>(new Set());
 
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (showResourcesDropdown && resourcesDropdownRef.current && !resourcesDropdownRef.current.contains(e.target as Node)) {
-        setShowResourcesDropdown(false);
+      if (showResourcesDropdown) {
+        const desktopContains = resourcesDropdownRef.current?.contains(e.target as Node);
+        const mobileContains = resourcesDropdownMobileRef.current?.contains(e.target as Node);
+        if (!desktopContains && !mobileContains) {
+          setShowResourcesDropdown(false);
+        }
       }
       if (showNotifPanel && notifWrapperRef.current && !notifWrapperRef.current.contains(e.target as Node)) {
         setShowNotifPanel(false);
@@ -114,7 +119,7 @@ export default function App() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [showResourcesDropdown, showNotifPanel, resourcesDropdownRef]);
+  }, [showResourcesDropdown, showNotifPanel, resourcesDropdownRef, resourcesDropdownMobileRef]);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -241,6 +246,9 @@ export default function App() {
   });
 
   const me = personnel.find((p) => p.account_number === userAccountNumber);
+  // A user is only considered "logged in" if their account number exists in the
+  // personnel table (validated against the database). If the saved number is not
+  // found, the account-number prompt reappears on refresh.
   const isLoggedIn = !!me && !!userAccountNumber;
   const myDisplayName = isLoggedIn ? [...(me.rank ? [me.rank] : []), me.first_name, me.last_name].filter(Boolean).join(" ") : "";
 
@@ -287,8 +295,14 @@ export default function App() {
   const handleTrack = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!trackAccountNumber.trim()) return;
-    localStorage.setItem("fsis_account_number", trackAccountNumber.trim());
-    setUserAccountNumber(trackAccountNumber.trim());
+    // Only set the logged-in account number if it exists in the personnel
+    // database. Tracking still works for any number (e.g. new-account requests),
+    // but a non-registered number cannot be used to "log in".
+    const isRegistered = personnel.some((p) => p.account_number === trackAccountNumber.trim());
+    if (isRegistered) {
+      localStorage.setItem("fsis_account_number", trackAccountNumber.trim());
+      setUserAccountNumber(trackAccountNumber.trim());
+    }
     setTrackLoading(true);
     setTrackError("");
     setTrackResults(null);
@@ -396,7 +410,10 @@ export default function App() {
   };
 
   const handleRequestCreated = (accountNum?: string) => {
-    if (accountNum && !userAccountNumber) {
+    // Only set the logged-in account number if it exists in the personnel
+    // database. A newly-created account (e.g. "New FSIS Account") may not be
+    // registered yet, so it is not used to log in.
+    if (accountNum && !userAccountNumber && personnel.some((p) => p.account_number === accountNum)) {
       localStorage.setItem("fsis_account_number", accountNum);
       setUserAccountNumber(accountNum);
     }
@@ -592,7 +609,7 @@ export default function App() {
               </button>
             ))}
             {/* More — dropdown with Resources + Admin */}
-            <div className="relative" ref={resourcesDropdownRef}>
+            <div className="relative" ref={resourcesDropdownMobileRef}>
               <button
                 onClick={() => setShowResourcesDropdown(!showResourcesDropdown)}
                 className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 min-w-[60px] ${
@@ -1080,6 +1097,12 @@ export default function App() {
               e.preventDefault();
               const val = accountInput.trim();
               if (!val) { setAccountError("Account number is required."); return; }
+              // Validate the account number against the personnel database
+              const match = personnel.find((p) => p.account_number === val);
+              if (!match) {
+                setAccountError("Account number not found. Please check and try again.");
+                return;
+              }
               localStorage.setItem("fsis_account_number", val);
               setUserAccountNumber(val);
               setShowAccountModal(false);
@@ -1133,6 +1156,12 @@ export default function App() {
               e.preventDefault();
               const val = accountInput.trim();
               if (!val) { setAccountError("Account number is required."); return; }
+              // Validate the account number against the personnel database
+              const match = personnel.find((p) => p.account_number === val);
+              if (!match) {
+                setAccountError("Account number not found. Please check and try again.");
+                return;
+              }
               localStorage.setItem("fsis_account_number", val);
               setUserAccountNumber(val);
               setShowAccountModal(false);
