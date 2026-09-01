@@ -69,7 +69,7 @@ app.post("/api/auth/login", async (req, res) => {
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: "5m" }
     );
 
     res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
@@ -86,6 +86,72 @@ app.get("/api/stations", async (_req, res) => {
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch stations" });
+  }
+});
+
+app.post("/api/stations", authenticate, async (req, res) => {
+  const { station_name, municipality, province } = req.body;
+  if (!station_name?.trim() || !municipality?.trim()) {
+    return res.status(400).json({ error: "Station name and municipality are required" });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO fire_stations (station_name, municipality, province)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [station_name.trim(), municipality.trim(), (province || "Cagayan Valley").trim()]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "A station with this name already exists" });
+    }
+    res.status(500).json({ error: "Failed to create station" });
+  }
+});
+
+app.put("/api/stations/:id", authenticate, async (req, res) => {
+  const { station_name, municipality, province } = req.body;
+  if (!station_name?.trim() || !municipality?.trim()) {
+    return res.status(400).json({ error: "Station name and municipality are required" });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE fire_stations
+       SET station_name = $1, municipality = $2, province = $3
+       WHERE id = $4
+       RETURNING *`,
+      [station_name.trim(), municipality.trim(), (province || "Cagayan Valley").trim(), req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Station not found" });
+    }
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "A station with this name already exists" });
+    }
+    res.status(500).json({ error: "Failed to update station" });
+  }
+});
+
+app.delete("/api/stations/:id", authenticate, async (req, res) => {
+  try {
+    const inUse = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM transfer_requests
+       WHERE station_from_id = $1 OR station_to_id = $1`,
+      [req.params.id]
+    );
+    if (inUse.rows[0].count > 0) {
+      return res.status(409).json({ error: "Cannot delete: station is used by existing transfer requests" });
+    }
+    const result = await pool.query("DELETE FROM fire_stations WHERE id = $1 RETURNING id", [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Station not found" });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete station" });
   }
 });
 

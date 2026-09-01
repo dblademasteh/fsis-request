@@ -11,10 +11,55 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function handleAuthError(res: Response): void {
+  if (res.status === 401 && getAuthToken()) {
+    localStorage.removeItem("fsis_auth_token");
+    localStorage.removeItem("fsis_admin_expiry");
+    window.dispatchEvent(new Event("fsis-auth-expired"));
+  }
+}
+
 export async function fetchStations(): Promise<FireStation[]> {
   const res = await fetch(`${BASE}/stations`);
   if (!res.ok) throw new Error("Failed to fetch stations");
   return res.json();
+}
+
+export async function createStation(data: { station_name: string; municipality: string; province?: string }): Promise<FireStation> {
+  const res = await fetch(`${BASE}/stations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    handleAuthError(res);
+    const err = await res.json();
+    throw new Error(err.error || "Failed to create station");
+  }
+  return res.json();
+}
+
+export async function updateStation(id: number, data: { station_name: string; municipality: string; province?: string }): Promise<FireStation> {
+  const res = await fetch(`${BASE}/stations/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    handleAuthError(res);
+    const err = await res.json();
+    throw new Error(err.error || "Failed to update station");
+  }
+  return res.json();
+}
+
+export async function deleteStation(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/stations/${id}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) {
+    handleAuthError(res);
+    const err = await res.json();
+    throw new Error(err.error || "Failed to delete station");
+  }
 }
 
 export async function fetchRequests(): Promise<TransferRequest[]> {
@@ -228,6 +273,7 @@ export async function updateSettings(data: {
     body: JSON.stringify(data),
   });
   if (!res.ok) {
+    handleAuthError(res);
     const err = await res.json();
     throw new Error(err.error || "Failed to update settings");
   }

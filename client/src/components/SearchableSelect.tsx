@@ -1,14 +1,24 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { ChevronDown, X } from "lucide-react";
 
+type SelectOption = string | { value: string; label: string };
+
 interface Props {
   label: string;
   value: string;
-  options: string[];
+  options: SelectOption[];
   onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
   icon?: React.ReactNode;
+  allowCustom?: boolean;
+}
+
+function optionValue(o: SelectOption) {
+  return typeof o === "string" ? o : o.value;
+}
+function optionLabel(o: SelectOption) {
+  return typeof o === "string" ? o : o.label;
 }
 
 export default function SearchableSelect({
@@ -19,6 +29,7 @@ export default function SearchableSelect({
   placeholder = "Type to search...",
   required,
   icon,
+  allowCustom,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -31,7 +42,7 @@ export default function SearchableSelect({
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
     if (!q) return options;
-    return options.filter((o) => o.toLowerCase().includes(q));
+    return options.filter((o) => optionLabel(o).toLowerCase().includes(q));
   }, [query, options]);
 
   useEffect(() => {
@@ -57,8 +68,8 @@ export default function SearchableSelect({
     }
   }, [activeIndex]);
 
-  const handleSelect = useCallback((option: string) => {
-    onChange(option);
+  const handleSelect = useCallback((option: SelectOption) => {
+    onChange(optionValue(option));
     setOpen(false);
     setQuery("");
     setActiveIndex(-1);
@@ -104,6 +115,8 @@ export default function SearchableSelect({
           handleSelect(filtered[activeIndex]);
         } else if (query && filtered.length > 0) {
           handleSelect(filtered[0]);
+        } else if (showCustom) {
+          handleSelect(query);
         }
         break;
       case "Escape":
@@ -119,6 +132,11 @@ export default function SearchableSelect({
         break;
     }
   }
+
+  const showCustom =
+    allowCustom &&
+    Boolean(query) &&
+    !options.some((o) => optionValue(o).toLowerCase() === query.toLowerCase());
 
   return (
     <div className="flex flex-col gap-1">
@@ -184,25 +202,35 @@ export default function SearchableSelect({
                 </li>
               ) : (
                 filtered.map((option, index) => (
-                  <li key={`${option}-${index}`} id={`${listboxId}-option-${index}`} role="option" aria-selected={value === option}>
+                  <li key={`${optionValue(option)}-${index}`} id={`${listboxId}-option-${index}`} role="option" aria-selected={value === optionValue(option)}>
                     <button
                       type="button"
                       onClick={() => handleSelect(option)}
                       onMouseEnter={() => setActiveIndex(index)}
                       className={`w-full text-left px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors duration-100 ${
-                        value === option
+                        value === optionValue(option)
                           ? "bg-primary text-primary-content font-medium"
                           : index === activeIndex
                             ? "bg-base-200 text-base-content"
                             : "text-base-content hover:bg-base-200"
                       }`}
                     >
-                      {option}
+                      {optionLabel(option)}
                     </button>
                   </li>
                 ))
               )}
             </ul>
+            {showCustom && (
+              <button
+                type="button"
+                onClick={() => handleSelect(query)}
+                onMouseEnter={() => setActiveIndex(-1)}
+                className="w-full border-t border-base-200 text-left px-3 py-2 text-sm text-primary hover:bg-base-200 transition-colors"
+              >
+                + Use &ldquo;{query}&rdquo; as new account
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -320,7 +320,19 @@ export default function RequestForm({ stations, personnel, onCreated, preselecte
               <SearchableSelect
                 label="Account Number"
                 value={accountNumber}
-                options={personnel.map((p) => p.account_number).filter((v): v is string => !!v)}
+                allowCustom
+                options={personnel
+                  .filter((p) => p.account_number)
+                  .map((p) => ({
+                    value: p.account_number!,
+                    label: `${p.account_number} - ${[
+                      p.rank,
+                      p.first_name,
+                      p.middle_name,
+                      p.last_name,
+                      p.suffix,
+                    ].filter(Boolean).join(" ")}`,
+                  }))}
             onChange={(val) => {
                 setAccountNumber(val);
                 clearFieldError("accountNumber");
