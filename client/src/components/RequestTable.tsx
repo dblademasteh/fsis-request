@@ -1,10 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { TransferRequest, RequestStatus } from "../types";
 import { updateRequestStatus, deleteRequest } from "../api";
 import { showDeviceNotification } from "../notifications";
 import { FileText, CheckCircle2, Inbox, Mail, ArrowRight, Calendar, Search, Trash2, AlertCircle, X, ExternalLink } from "lucide-react";
 import { ConfirmModal } from "./ConfirmModal";
+import Pagination from "./pagination/Pagination";
+import { usePagination } from "./pagination/usePagination";
 
 interface Props {
   requests: TransferRequest[];
@@ -44,6 +46,11 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
     }
     return result;
   }, [requests, filter, search]);
+
+  const { page, setPage, pageSize, setPageSize, visible } = usePagination(filtered, 10);
+  useEffect(() => {
+    setPage(1);
+  }, [filter, search, setPage]);
 
   const [confirmState, setConfirmState] = useState<{ show: boolean; type: "approve" | "delete"; id: number }>({ show: false, type: "approve", id: 0 });
   const [actionToast, setActionToast] = useState<{ msg: string; show: boolean }>({ msg: "", show: false });
@@ -233,7 +240,7 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
         </div>
       ) : (
         <div className="divide-y divide-base-200">
-          {filtered.map((req) => {
+          {visible.map((req) => {
             const style = STATUS_STYLE[req.status];
             return (
               <div
@@ -335,6 +342,15 @@ export default function RequestTable({ requests, onUpdated, isAdmin = false }: P
           })}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        label="requests"
+      />
 
       {/* CMS Modal — portaled to body so ancestor transforms/overflow don't constrain it */}
       {showCmsModal && createPortal(

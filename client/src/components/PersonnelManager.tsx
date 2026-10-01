@@ -1,10 +1,12 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { Personnel } from "../types";
 import { RANK_OPTIONS, DESIGNATION_OPTIONS } from "../types";
 import { importPersonnel, deletePersonnel, createPersonnel, updatePersonnel } from "../api";
 import { ConfirmModal } from "./ConfirmModal";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import Pagination from "./pagination/Pagination";
+import { usePagination } from "./pagination/usePagination";
 import { Users, Upload, Trash2, Search, FileText, AlertCircle, CheckCircle2, X, Download, Pencil, UserPlus } from "lucide-react";
 
 interface Props {
@@ -143,6 +145,11 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
       p.designation?.toLowerCase().includes(q)
     );
   });
+
+  const { page, setPage, pageSize, setPageSize, visible } = usePagination(filtered, 10);
+  useEffect(() => {
+    setPage(1);
+  }, [search, setPage]);
 
   function parseCSV(text: string): Omit<Personnel, "id" | "created_at">[] {
     const lines = text.trim().split(/\r?\n/);
@@ -367,7 +374,7 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
         </div>
       ) : (
         <div className="divide-y divide-base-200">
-          {filtered.map((p) => (
+          {visible.map((p) => (
             <div key={p.id} className="px-4 sm:px-6 py-2.5 sm:py-3 hover:bg-base-200/50 transition-colors duration-150 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="bg-secondary/10 text-secondary rounded-xl w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center shrink-0">
@@ -405,6 +412,16 @@ export default function PersonnelManager({ personnel, onUpdated }: Props) {
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={filtered.length}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        label="personnel"
+      />
+
       {/* Create / Edit Modal */}
       {modalOpen && (
         <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="personnel-modal-title" onClick={closeModal}>
