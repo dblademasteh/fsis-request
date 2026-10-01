@@ -1,170 +1,140 @@
 # FSIS Request — Deployment Guide
 
-Production target: **BFP-R2-NAS1** at `/volume1/docker/fsis-request`, deployed from GitHub.
+Production target: **Hostinger VPS** (`76.13.187.170`, `srv2024771`) running **CloudPanel**, domain **https://request.bfpr2.online**.
+
+Architecture (no Docker for the app — only Postgres runs in Docker):
+
+```
+Browser → CloudPanel nginx (:443, Let's Encrypt)
+            ├─ /            → client/dist (static React build, SPA fallback)
+            ├─ /api         → proxy → 127.0.0.1:3001 (PM2: fsis-api, node server/dist/index.js)
+            └─ /uploads     → proxy → 127.0.0.1:3001
+PM2 (fsis-api) → Postgres in Docker (fsis-postgres, 127.0.0.1:5432, volume fsis_pg_data)
+```
+
+## Paths on the VPS
+
+| What | Where |
+|---|---|
+| App (git clone) | `/home/fsis-app/htdocs/request.bfpr2.online` |
+| Site user (SSH/SFTP) | `fsis-app` |
+| Client build | `.../client/dist` (nginx docroot) |
+| Server build | `.../server/dist` |
+| `.env` (secrets) | `/home/fsis-app/htdocs/request.bfpr2.online/.env` (chmod 600) |
+| Nginx vhost | `/etc/nginx/sites-enabled/request.bfpr2.online.conf` |
+| Generated credentials | `/root/.fsis_creds` (root only) |
+| Postgres container | `fsis-postgres` (image `postgres:16-alpine`, volume `fsis_pg_data`) |
 
 ## Workflow
 
-Code is edited on the dev PC and pushed to GitHub. The NAS **pulls** — never edit tracked files directly on the NAS (diverged files caused every deploy issue to date). Only `.env` lives only on the NAS.
+Code is edited on the dev PC and pushed to GitHub. The VPS **pulls** — never edit tracked files directly on the VPS. Only `.env` lives on the VPS.
 
 ```bash
 # Dev PC
 git add . && git commit -m "..." && git push
 
-# NAS
-cd /volume1/docker/fsis-request
-git pull origin main
-docker compose up -d --build        # rebuilds only what changed
+# VPS
+ssh root@76.13.187.170
+cd /home/fsis-app/htdocs/request.bfpr2.online
+./deploy-cloudpanel.sh        # pull + npm install + build + migrate + pm2 restart
 ```
 
-> 💡 A helper script `deploy.sh` wraps the NAS steps: `./deploy.sh` (pull + rebuild + restart), `./deploy.sh --no-pull` (rebuild only).
+> The script runs as whichever user invokes it; run it as `fsis-app` (or via root — it uses nvm from the fsis-app home). GitHub access uses a **deploy key** at `/home/fsis-app/.ssh/fsis_deploy` (added to the repo as `fsis-vps`).
 
-## 1. `.env` (on the NAS)
-
-Create once at the project root:
+## 1. `.env` (on the VPS)
 
 ```env
+DB_HOST=127.0.0.1
+DB_PORT=5432
 DB_USER=fsis_admin
-DB_PASSWORD=strong_db_password
+DB_PASSWORD=<generated — see /root/.fsis_creds>
 DB_NAME=fsis
-JWT_SECRET=long_random_secret_at_least_32_characters
-BASE_URL=http://localhost:3001
-CLIENT_PORT=38080
-SERVER_PORT=3001
-ADMIN_PASSWORD=secure_admin_password
-CF_TUNNEL_TOKEN=eyJ...cloudflare_tunnel_token
+JWT_SECRET=<generated>
+PORT=3001
+ADMIN_PASSWORD=<generated>
 ```
 
 Rules:
 
-* One entry per variable — duplicates silently override each other.
-* `ADMIN_PASSWORD` is injected into the server container by compose; it is applied on every server start.
-* `CF_TUNNEL_TOKEN` is optional until you want public access via Cloudflare.
-
-> ⚠️ `POSTGRES_USER`/`POSTGRES_PASSWORD` only take effect on **first** initialization of the `postgres_data` volume. To change DB credentials later you must either create the new role manually in psql or wipe the volume (`docker compose down -v`) — which deletes all data.
+* dotenv loads `.env` from the **current working directory** — always run the server/migrations from the app root (the deploy script does).
+* `ADMIN_PASSWORD` is applied to the `admin` user on every migration run.
+* After changing `.env`: `pm2 restart fsis-api --update-env` (or rerun the deploy script).
+* ⚠️ `POSTGRES_*` envs only take effect on **first** initialization of the `fsis_pg_data` volume. To change DB credentials later, create the role manually in psql or wipe the volume (`docker rm -f fsis-postgres && docker volume rm fsis_pg_data` — **deletes all data**).
 
 ## 2. Deploy / update
 
 ```bash
-cd /volume1/docker/fsis-request
-git pull origin main
-docker compose up -d --build
+cd /home/fsis-app/htdocs/request.bfpr2.online
+./deploy-cloudpanel.sh
 ```
 
-On first boot (or after `down -v`):
+First-boot sequence (already done):
 
-1. Postgres initializes with `DB_USER`/`DB_PASSWORD` from `.env`
-2. The server container waits for Postgres to become healthy (healthcheck), then runs migrations (`node dist/db/migrate.js`) → creates tables, seeds default stations, sets the admin password
-3. API listens on port 3001, nginx serves the client on `CLIENT_PORT` (38080)
+1. Postgres container starts (`fsis-postgres`, localhost-only port binding `127.0.0.1:5432`)
+2. Migrations run (`node server/dist/db/migrate.js`) → tables, seed stations, admin password
+3. `setup-auth.js` ensures the users table/admin
+4. PM2 starts `node server/dist/index.js` (name `fsis-api`, port 3001)
 
 Verify:
 
 ```bash
-docker compose ps                                   # all containers Up, stable uptimes
-docker compose logs server --tail 10                # expect: Migration completed successfully. / Server running on port 3001
-docker compose exec postgres env | grep POSTGRES_USER   # matches DB_USER
+pm2 status | grep fsis-api                    # online
+curl -s http://127.0.0.1:3001/api/stations | head -c 200
+curl -sk https://127.0.0.1/api/stations --resolve request.bfpr2.online:443:127.0.0.1
 ```
 
 ## 3. Database seeding
 
-Migrations auto-run at container start. Manual seed commands use **compiled JS inside the server image** (`ts-node`/`src/` are not in production images):
+Migrations auto-run on every deploy. Manual seed commands use **compiled JS** (`ts-node`/`src/` are not deployed):
 
 ```bash
-# Fire stations (idempotent — skips existing)
-docker compose exec server node dist/db/deploy-stations.js
-
-# Personnel (DELETES all personnel rows, then imports the bundled CSV)
-docker compose exec server node dist/db/seed-personnel.js
+cd /home/fsis-app/htdocs/request.bfpr2.online
+node server/dist/db/deploy-stations.js   # fire stations (idempotent)
+node server/dist/db/seed-personnel.js    # ⚠️ DELETES all personnel, reimports bundled CSV
 ```
 
-The personnel seed reads `server/src/db/personnel_template.csv`, which is baked into the image at build time. To change the data: update the CSV → commit/push → `git pull && docker compose up -d --build server` → rerun the seed command.
-
-For day-to-day personnel management prefer the admin UI (**Personnel → Import CSV / Add / Edit / Delete**) — it goes through the API and needs no rebuild.
+For day-to-day personnel management use the admin UI (**Personnel → Import CSV / Add / Edit / Delete**) — no rebuild needed.
 
 ## 4. Admin login
 
 * **Username:** `admin`
-* **Password:** value of `ADMIN_PASSWORD` in `.env` (fallback `changeme` — never in production)
+* **Password:** value of `ADMIN_PASSWORD` (generated — see `/root/.fsis_creds`)
 
-Changing the password: edit `.env` → `docker compose up -d --force-recreate server`.
+Changing it: edit `.env` → `node server/dist/db/migrate.js && pm2 restart fsis-api` (migration upserts the hash).
 
-User accounts are not separate logins — landing-page users identify themselves by their FSIS account number, which must exist in the `personnel` table.
+Landing-page users identify themselves by their FSIS account number, which must exist in the `personnel` table.
 
-## 5. Cloudflare tunnel (public access, optional)
+## 5. SSL / domain
 
-Uses a token-based remote-managed tunnel. One-time setup in the Cloudflare dashboard:
+* DNS: A record `request` → `76.13.187.170` (hPanel → Domains → bfpr2.online → DNS)
+* Cert: `clpctl lets-encrypt:install:certificate --domainName=request.bfpr2.online` (issues apex + www — www needs a DNS record too, e.g. CNAME `www` → `request.bfpr2.online`)
+* CloudPanel places a **self-signed placeholder cert** at site creation, so HTTPS works internally even before Let's Encrypt.
 
-1. https://one.dash.cloudflare.com → **Networks → Tunnels → Create a tunnel** (type *Cloudflared*)
-2. Copy the token from the install command (`cloudflared tunnel run --token <TOKEN>`)
-3. Add a **Public Hostname**: domain `devbry.online` → service `HTTP` → URL `http://localhost:38080`
-
-> ⚠️ **Important:** The `cloudflared` container runs with **host networking** (`network_mode: host`) because Docker on this NAS runs with `--iptables=false`, which prevents containers on the bridge network from reaching the internet. With host networking, cloudflared cannot resolve Docker service names — so the tunnel's origin URL must be `http://localhost:38080` (the client's published port), **not** `http://client:80`.
-
-Then on the NAS:
+## 6. Database backup
 
 ```bash
-grep -q CF_TUNNEL_TOKEN .env || echo "CF_TUNNEL_TOKEN=<paste-token>" >> .env
-docker compose up -d --force-recreate cloudflared
-docker compose logs cloudflared --tail 20    # expect "Registered tunnel connection"
+# dump to file
+docker exec fsis-postgres pg_dump -U fsis_admin -d fsis > ~/fsis_backup_$(date +%Y%m%d).sql
+
+# restore
+docker exec -i fsis-postgres psql -U fsis_admin -d fsis < ~/fsis_backup_<timestamp>.sql
 ```
 
-The `cloudflared` service is part of the default stack, so a plain `docker compose up -d` starts it too. It **self-disables** when no token is set: if `CF_TUNNEL_TOKEN` is empty, the container prints `CF_TUNNEL_TOKEN not set — cloudflared disabled.` and exits cleanly (no crash-loop). To enable public access, add the token to `.env` and recreate the container as above.
-
-## 5b. Database backup
-
-Two ways to back up the database:
-
-**Option A — helper script (recommended):**
-
-```bash
-cd /volume1/docker/fsis-request
-./backup-db.sh
-```
-
-Creates `./backups/fsis_backup_<timestamp>.sql` and keeps the newest 14 (override with `BACKUP_KEEP=30 ./backup-db.sh`).
-
-**Option B — compose service:**
-
-```bash
-cd /volume1/docker/fsis-request
-docker compose --profile backup run --rm backup
-```
-
-Writes to `./backups/` on the host (bind-mounted).
-
-**Scheduled backups (cron):** add to the NAS crontab (`crontab -e`):
-
-```
-0 2 * * * cd /volume1/docker/fsis-request && ./backup-db.sh >> /volume1/docker/fsis-request/backups/backup.log 2>&1
-```
-
-**Restore:**
-
-```bash
-cd /volume1/docker/fsis-request
-docker compose exec -T postgres psql -U "$(grep '^DB_USER=' .env | cut -d= -f2-)" -d "$(grep '^DB_NAME=' .env | cut -d= -f2-)" < backups/fsis_backup_<timestamp>.sql
-```
-
-> ⚠️ Backups are stored in `./backups/` on the NAS. For disaster recovery, copy them off the NAS (e.g. to a USB drive or cloud storage).
-
-## 6. Services
-
-| Service | Local | Public |
-|---|---|---|
-| Client (nginx) | `http://<NAS-IP>:38080` | `https://devbry.online` |
-| Server (API) | `http://<NAS-IP>:3001` | via nginx `/api` proxy — not exposed directly |
-| Postgres | internal network only (`5432/tcp`) | — |
+Schedule it with a cron job (`crontab -e` as root) and copy dumps off the VPS for disaster recovery.
 
 ## 7. Maintenance
 
 ```bash
-docker compose stop            # stop stack (survives reboot unless disabled)
-docker compose down            # stop + remove containers (keeps data volume)
-docker compose down -v         # ⚠️ also deletes the database volume
-docker compose logs -f         # follow all logs
-docker compose logs server     # API only
-docker compose up -d --force-recreate cloudflared   # (re)start tunnel after adding token
-docker compose stop cloudflared                     # stop tunnel
+pm2 status                          # process state
+pm2 logs fsis-api                   # API logs
+pm2 restart fsis-api                # restart API
+docker ps | grep fsis-postgres      # DB container
+docker logs fsis-postgres --tail 20 # DB logs
+systemctl reload nginx              # after vhost edits
+docker rm -f fsis-postgres && docker volume rm fsis_pg_data   # ⚠️ wipes database
 ```
+
+> ⚠️ **Vhost caveat:** the nginx vhost was edited directly on disk (custom SPA + proxy config). If you save a vhost through the CloudPanel UI for this site, it regenerates the file and **overwrites** the custom config — re-apply it from `${VHOST}.deploy-bak` or by hand.
 
 ### Browser caching (service worker)
 
@@ -174,22 +144,30 @@ The client registers a service worker (`client/public/sw.js`, cache name `fsis-v
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Container restarts every few seconds | Crash at startup — check logs | `docker compose logs <service> --tail 30` |
-| `password authentication failed for user ...` | Seed/service using credentials that don't match the initialized DB | Run seeds via the `server` container (`node dist/db/...`); verify `.env` matches the role shown by `psql -c "\du"` |
-| `role "..." does not exist` | Volume was initialized before the current `DB_USER` was set | Wipe & re-init: `docker compose down -v && docker compose up -d --build` (data loss) |
-| `ports are not available ... bind: address already in use` | Host port already used (e.g. local dev server on 3001) | Free the port or change `SERVER_PORT`/`CLIENT_PORT` in `.env` |
-| Login modal reappears after page reload | Account number missing from `personnel` table | Re-import personnel / verify row exists: `SELECT COUNT(*) FROM personnel;` |
-| Old logo/assets after deploy | Service worker cache | Bump `CACHE_NAME` in `sw.js`; clients clear automatically on next load |
-| NAS files diverge from GitHub (merge errors on pull) | Direct edits were made on the NAS | `git reset --hard origin/main` (discards NAS-local edits; `.env` is untracked and safe) |
-| Nginx: `host not found in upstream` | Config references `host.docker.internal`, which doesn't exist in this Docker network | Use compose service names — `proxy_pass http://server:3001;` |
-| `cloudflared` exits with "token not set" | `CF_TUNNEL_TOKEN` is empty in `.env` | Add the token and recreate: `docker compose up -d --force-recreate cloudflared` |
+| `pm2 status` shows `errored`, errno -98 | Port 3001 already in use | `ss -tlnp \| grep 3001`, kill the stale process, `pm2 restart fsis-api` |
+| `relation "..." does not exist` on migrate | Stale `dist/` (build didn't run) | Rerun `./deploy-cloudpanel.sh` |
+| `permission denied` during build | Files owned by root (built as wrong user once) | `chown -R fsis-app:fsis-app /home/fsis-app/htdocs/request.bfpr2.online` as root |
+| `node: command not found` in scripts | nvm not loaded (non-interactive shell) | `export NVM_DIR=$HOME/.nvm && source $NVM_DIR/nvm.sh` |
+| `FATAL: JWT_SECRET ... required` | Server started outside the app root | Always run from `/home/fsis-app/htdocs/request.bfpr2.online` |
+| Login modal reappears after reload | Account number missing from `personnel` | Import personnel via admin UI |
+| Old logo/assets after deploy | Service worker cache | Bump `CACHE_NAME` in `sw.js` |
+| Let's Encrypt fails | DNS record missing (apex or www) | Add/fix DNS in hPanel, retry |
+| Old client after deploy | Browser cache on index.html | Hard refresh (Ctrl+Shift+R) |
 
 ## 9. Release checklist
 
 - [ ] Type-checks pass locally (`npx tsc --noEmit` in `client/` and `server/`)
-- [ ] Tested locally: `docker compose up -d --build postgres server client`
 - [ ] Static assets changed? → bumped `CACHE_NAME` in `sw.js`
 - [ ] Committed & pushed from the PC
-- [ ] On NAS: `git pull origin main && docker compose up -d --build`
-- [ ] `docker compose ps` healthy + login + core flows verified
-- [ ] Tunnel enabled? → `CF_TUNNEL_TOKEN` set in `.env` + `docker compose up -d --force-recreate cloudflared`
+- [ ] On VPS: `./deploy-cloudpanel.sh`
+- [ ] `pm2 status` online + login + core flows verified
+
+---
+
+# Legacy: NAS deployment (BFP-R2-NAS1)
+
+The previous target was a Synology NAS at `/volume1/docker/fsis-request`, running the full stack in Docker Compose with a Cloudflare tunnel (`devbry.online`). See git history for that workflow (`deploy.sh`, `backup-db.sh`, docker-compose with `cloudflared` service). Key differences from the CloudPanel setup:
+
+* Compose injected env vars; the VPS uses a root-level `.env` loaded by dotenv.
+* `cloudflared` tunnel replaced by CloudPanel nginx + Let's Encrypt.
+* Container restarts replaced by PM2.
