@@ -13,19 +13,6 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT NOW()
       );
 
-      -- Deduplicate existing rows (keep the lowest id), but never delete any
-      -- station that is still referenced by a transfer request.
-      DELETE FROM fire_stations
-      WHERE id NOT IN (
-        SELECT MIN(id) FROM fire_stations GROUP BY station_name, province
-      )
-      AND id NOT IN (
-        SELECT station_from_id FROM transfer_requests WHERE station_from_id IS NOT NULL
-        UNION
-        SELECT station_to_id FROM transfer_requests WHERE station_to_id IS NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_fire_stations_name_prov ON fire_stations(station_name, province);
-
       CREATE TABLE IF NOT EXISTS transfer_requests (
         id SERIAL PRIMARY KEY,
         station_from_id INTEGER REFERENCES fire_stations(id),
@@ -49,6 +36,19 @@ async function migrate() {
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      -- Deduplicate existing rows (keep the lowest id), but never delete any
+      -- station that is still referenced by a transfer request.
+      DELETE FROM fire_stations
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM fire_stations GROUP BY station_name, province
+      )
+      AND id NOT IN (
+        SELECT station_from_id FROM transfer_requests WHERE station_from_id IS NOT NULL
+        UNION
+        SELECT station_to_id FROM transfer_requests WHERE station_to_id IS NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_fire_stations_name_prov ON fire_stations(station_name, province);
 
       CREATE TABLE IF NOT EXISTS personnel (
         id SERIAL PRIMARY KEY,
